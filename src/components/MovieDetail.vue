@@ -40,10 +40,12 @@ const draftDate = ref('')
 const draftReview = ref('')
 const ratingBurst = ref(false)
 const ratingBurstKey = ref(0)
+const detailScroll = ref(null)
 
 let switchTimer
 let backTimer
 let burstTimer
+let revealObserver
 
 const imageUrl = (path, size = 'original') => {
   if (!path) return ''
@@ -91,6 +93,23 @@ const detailMotionStyle = computed(() => ({ '--scroll': scrollProgress.value, '-
 
 function handleScroll(event) {
   scrollProgress.value = Math.min(1, event.currentTarget.scrollTop / 230)
+}
+
+function observeRevealSections({ reset = false } = {}) {
+  revealObserver?.disconnect()
+  const root = detailScroll.value
+  if (!root || typeof IntersectionObserver === 'undefined') return
+
+  if (reset) root.querySelectorAll('.reveal-section').forEach((section) => section.classList.remove('is-visible'))
+  const targets = root.querySelectorAll('.reveal-section:not(.is-visible)')
+  revealObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return
+      entry.target.classList.add('is-visible')
+      revealObserver?.unobserve(entry.target)
+    })
+  }, { root, threshold: 0.14, rootMargin: '0px 0px -8% 0px' })
+  targets.forEach((section) => revealObserver.observe(section))
 }
 
 function setWatched(value) {
@@ -199,6 +218,7 @@ watch(() => props.movie.id, async () => {
   swipeTransition.value = false
   swipeX.value = switchDirection.value > 0 ? 96 : -96
   await nextTick()
+  observeRevealSections({ reset: true })
   window.requestAnimationFrame(() => {
     swipeTransition.value = true
     swipeX.value = 0
@@ -206,10 +226,16 @@ watch(() => props.movie.id, async () => {
   })
 }, { immediate: true })
 
+watch([() => props.movie.detailState, () => people.value.length], async () => {
+  await nextTick()
+  observeRevealSections()
+})
+
 onBeforeUnmount(() => {
   window.clearTimeout(switchTimer)
   window.clearTimeout(backTimer)
   window.clearTimeout(burstTimer)
+  revealObserver?.disconnect()
 })
 </script>
 
@@ -230,7 +256,7 @@ onBeforeUnmount(() => {
       <button :class="{ active: liked }" aria-label="收藏" @click="liked = !liked"><Heart :size="20" :fill="liked ? 'currentColor' : 'none'" /></button>
     </header>
 
-    <div class="detail-scroll" @scroll.passive="handleScroll">
+    <div ref="detailScroll" class="detail-scroll" @scroll.passive="handleScroll">
       <section class="detail-hero-copy">
         <p class="detail-original">{{ movie.originalTitle }}</p>
         <h1>{{ movie.title }}</h1>
@@ -251,7 +277,7 @@ onBeforeUnmount(() => {
           <span>{{ movie.detailError }}</span>
         </div>
 
-        <section class="score-actions" aria-label="TMDB 评分与预告片">
+        <section class="score-actions reveal-section" aria-label="TMDB 评分与预告片">
           <div class="tmdb-score-card">
             <span>TMDB 评分</span>
             <div><strong>{{ tmdbScore ?? '—' }}</strong><small>/10</small></div>
@@ -263,13 +289,13 @@ onBeforeUnmount(() => {
           </button>
         </section>
 
-        <section class="quick-facts" aria-label="影片基础资料">
+        <section class="quick-facts reveal-section" aria-label="影片基础资料">
           <span><CalendarDays :size="14" />{{ releaseLabel }}</span>
           <span><Clock3 :size="14" />{{ runtimeLabel }}</span>
           <span><Tag :size="14" />{{ movie.certification || genres[0] || '分级待定' }}</span>
         </section>
 
-        <section class="detail-panel synopsis-panel">
+        <section class="detail-panel synopsis-panel reveal-section">
           <h2>剧情简介</h2>
           <p :class="{ expanded: overviewExpanded }">{{ movie.overview || '暂无剧情简介。TMDB 详情加载完成后会在这里展示影片介绍。' }}</p>
           <button v-if="canExpandOverview" class="text-action" @click="overviewExpanded = !overviewExpanded">
@@ -277,7 +303,7 @@ onBeforeUnmount(() => {
           </button>
         </section>
 
-        <section v-if="people.length" class="detail-panel people-panel">
+        <section v-if="people.length" class="detail-panel people-panel reveal-section">
           <div class="section-heading"><h2>主要演职员</h2><small>导演与主演</small></div>
           <div class="people-rail">
             <article v-for="person in people" :key="`${person.id}-${person.role}`" class="person-card">
@@ -290,7 +316,7 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <section class="detail-panel record-panel">
+        <section class="detail-panel record-panel reveal-section">
           <div class="section-heading"><h2>我的记录</h2><small>{{ movie.watched ? '观影已完成' : '待看清单' }}</small></div>
           <div class="record-grid">
             <div><span>我的评分</span><strong>{{ personalScore ?? '—' }}<small v-if="personalScore">/10</small></strong></div>
@@ -338,11 +364,12 @@ onBeforeUnmount(() => {
     </Transition>
 
     <footer class="detail-dock">
-      <div class="dock-empty" aria-hidden="true"></div>
       <button class="edit-dock" aria-label="编辑我的记录" @click="openRecordEditor"><Pencil :size="24" /></button>
-      <button class="watch-toggle" :class="{ watched: movie.watched }" :aria-label="`当前${movie.watched ? '已观看' : '未观看'}，点击切换`" @click="toggleWatched">
-        <Check v-if="movie.watched" :size="13" /><span>{{ movie.watched ? '已观看' : '未观看' }}</span>
-      </button>
+      <div class="watch-island">
+        <button class="watch-toggle" :class="{ watched: movie.watched }" :aria-label="`当前${movie.watched ? '已观看' : '未观看'}，点击切换`" @click="toggleWatched">
+          <Check v-if="movie.watched" :size="13" /><span>{{ movie.watched ? '已观看' : '未观看' }}</span>
+        </button>
+      </div>
     </footer>
   </article>
 </template>
