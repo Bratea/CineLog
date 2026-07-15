@@ -20,13 +20,15 @@ import {
 import cinematicAnimeCollage from '../assets/cinematic-anime-collage.png'
 import AppNotice from './AppNotice.vue'
 import ImageViewer from './ImageViewer.vue'
+import DatePickerDialog from './DatePickerDialog.vue'
+import PersonDetailModal from './PersonDetailModal.vue'
 
 const props = defineProps({
   movie: { type: Object, required: true },
   entryMode: { type: String, default: 'home' },
   layoutOrder: { type: Array, default: () => ['tagline', 'score', 'trailer', 'facts', 'synopsis', 'people', 'record'] },
 })
-const emit = defineEmits(['back', 'navigate', 'update-watched', 'update-record'])
+const emit = defineEmits(['back', 'navigate', 'update-watched', 'update-record', 'request-person'])
 
 const liked = ref(false)
 const overviewExpanded = ref(false)
@@ -43,12 +45,15 @@ const editOpen = ref(false)
 const draftRating = ref(0)
 const draftDate = ref('')
 const draftReview = ref('')
+const draftRewatchTag = ref('')
+const recordDatePickerOpen = ref(false)
 const ratingBurst = ref(false)
 const ratingBurstKey = ref(0)
 const detailScroll = ref(null)
 const activeStillIndex = ref(0)
 const viewerImage = ref(null)
 const detailNotice = ref(null)
+const selectedPerson = ref(null)
 
 let switchTimer
 let backTimer
@@ -113,6 +118,7 @@ const currentStill = computed(() => movieStills.value[activeStillIndex.value] ||
 const nextStill = computed(() => movieStills.value.length > 1
   ? movieStills.value[(activeStillIndex.value + 1) % movieStills.value.length]
   : '')
+const releaseTypeLabel = (type) => ({ 1: '首映', 2: '院线（有限）', 3: '院线上映', 4: '数字发行', 5: '实体发行', 6: '电视播出' })[type] || '上映'
 const detailMotionStyle = computed(() => ({ '--scroll': scrollProgress.value, '--swipe-x': `${swipeX.value}px` }))
 const moduleOrder = (id) => {
   const index = props.layoutOrder.indexOf(id)
@@ -166,7 +172,14 @@ function openRecordEditor() {
   draftRating.value = personalScore.value || 0
   draftDate.value = props.movie.watchedDate || ''
   draftReview.value = props.movie.feeling || ''
+  draftRewatchTag.value = props.movie.rewatchTag || ''
+  recordDatePickerOpen.value = false
   editOpen.value = true
+}
+
+function openPerson(person) {
+  selectedPerson.value = person
+  emit('request-person', person)
 }
 
 function selectRating(score) {
@@ -185,12 +198,17 @@ function saveRecord() {
     rating: draftRating.value,
     date: draftDate.value,
     review: draftReview.value,
+    rewatchTag: draftRewatchTag.value,
   })
   editOpen.value = false
 }
 
 function openTrailer() {
   if (trailerUrl.value) window.open(trailerUrl.value, '_blank', 'noopener,noreferrer')
+}
+
+function openExternal(url) {
+  if (url) window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 function showStill(index) {
@@ -262,6 +280,8 @@ watch(() => props.movie.id, async () => {
   overviewExpanded.value = false
   activeStillIndex.value = 0
   viewerImage.value = null
+  selectedPerson.value = null
+  recordDatePickerOpen.value = false
   detailNotice.value = null
   window.clearTimeout(detailNoticeTimer)
   editOpen.value = false
@@ -366,7 +386,7 @@ onBeforeUnmount(() => {
           <div class="section-heading"><h2>主要演职员</h2><small>导演与主演</small></div>
           <div class="people-rail">
             <article v-for="person in people" :key="`${person.id}-${person.role}`" class="person-card">
-              <button v-if="person.profile_path" class="person-photo" :style="{ backgroundImage: `url(${imageUrl(person.profile_path, 'w185')})` }" :aria-label="`放大查看${person.name}演员照片`" @click="openImage(imageUrl(person.profile_path, 'w500'), `${person.name} · ${person.role}`)"></button>
+              <button v-if="person.profile_path" class="person-photo" :style="{ backgroundImage: `url(${imageUrl(person.profile_path, 'w185')})` }" :aria-label="`查看${person.name}演员资料`" @click="openPerson(person)"></button>
               <div v-else class="person-photo"><UserRound :size="20" /></div>
               <strong>{{ person.name }}</strong>
               <span>{{ person.role }}</span>
@@ -381,6 +401,48 @@ onBeforeUnmount(() => {
             <div><span>观看日期</span><strong>{{ movie.watchedDate || (movie.watched ? movie.year : '尚未观看') }}</strong></div>
           </div>
           <blockquote>“{{ movie.feeling || (movie.watched ? '还没有写下短评。' : '加入待看清单，留给下一次观影。') }}”</blockquote>
+        </section>
+
+        <section v-if="movie.filmInfo || movie.keywords?.length" class="detail-panel extra-panel detail-module reveal-section" style="order:70">
+          <div class="section-heading"><h2>影片资料</h2><small>TMDB FILE</small></div>
+          <div class="film-info-grid">
+            <div><span>原始语言</span><strong>{{ movie.filmInfo?.originalLanguage?.toUpperCase() || '—' }}</strong></div>
+            <div><span>制作国家</span><strong>{{ movie.filmInfo?.countries?.join('、') || '—' }}</strong></div>
+            <div><span>语言</span><strong>{{ movie.filmInfo?.languages?.join('、') || '—' }}</strong></div>
+            <div><span>发行状态</span><strong>{{ movie.filmInfo?.status || '—' }}</strong></div>
+          </div>
+          <div v-if="movie.keywords?.length" class="keyword-cloud"><button v-for="keyword in movie.keywords" :key="keyword"># {{ keyword }}</button></div>
+        </section>
+
+        <section v-if="movie.crew?.length || movie.productionCompanies?.length" class="detail-panel production-panel detail-module reveal-section" style="order:71">
+          <div class="section-heading"><h2>幕后制作</h2><small>CREW</small></div>
+          <div v-if="movie.crew?.length" class="crew-list">
+            <button v-for="person in movie.crew" :key="`${person.id}-${person.role}`" @click="openPerson(person)"><span>{{ person.role }}</span><strong>{{ person.name }}</strong></button>
+          </div>
+          <div v-if="movie.productionCompanies?.length" class="company-rail">
+            <article v-for="company in movie.productionCompanies" :key="company.id"><img v-if="company.logo_path" :src="imageUrl(company.logo_path, 'w185')" :alt="company.name" /><div v-else>{{ company.name.slice(0, 1) }}</div><strong>{{ company.name }}</strong><span>{{ company.country }}</span></article>
+          </div>
+        </section>
+
+        <section v-if="movie.releases?.length" class="detail-panel releases-panel detail-module reveal-section" style="order:72">
+          <div class="section-heading"><h2>地区上映</h2><small>{{ movie.releases.length }} 个地区</small></div>
+          <div class="release-list"><article v-for="release in movie.releases" :key="`${release.country}-${release.date}`"><strong>{{ release.country }}</strong><div><span>{{ release.date || '日期待定' }}</span><small>{{ releaseTypeLabel(release.type) }}<template v-if="release.certification"> · {{ release.certification }}</template></small></div></article></div>
+        </section>
+
+        <section v-if="movie.videos?.length" class="detail-panel videos-panel detail-module reveal-section" style="order:73">
+          <div class="section-heading"><h2>影片视频</h2><small>链接播放</small></div>
+          <div class="video-list"><button v-for="video in movie.videos" :key="video.id" @click="openExternal(video.url)"><i><Play :size="15" fill="currentColor" /></i><span><strong>{{ video.name }}</strong><small>{{ video.type }}<template v-if="video.official"> · 官方</template></small></span></button></div>
+        </section>
+
+        <section v-if="movie.posters?.length" class="detail-panel posters-panel detail-module reveal-section" style="order:74">
+          <div class="section-heading"><h2>海报画廊</h2><small>点击放大</small></div>
+          <div class="poster-rail"><button v-for="(poster, index) in movie.posters" :key="poster.file_path" :aria-label="`放大查看第 ${index + 1} 张电影海报`" @click="openImage(imageUrl(poster.file_path), `${movie.title} · 海报 ${String(index + 1).padStart(2, '0')}`)"><img :src="imageUrl(poster.file_path, 'w342')" :alt="`${movie.title}海报${index + 1}`" /><span>{{ poster.language?.toUpperCase() || 'ART' }}</span></button></div>
+        </section>
+
+        <section v-if="movie.collection?.parts?.length" class="detail-panel collection-panel detail-module reveal-section" style="order:75">
+          <div class="collection-heading" :style="movie.collection.backdrop_path ? { backgroundImage: `url(${imageUrl(movie.collection.backdrop_path, 'w780')})` } : {}"><div><small>COLLECTION</small><h2>{{ movie.collection.name }}</h2></div></div>
+          <p v-if="movie.collection.overview">{{ movie.collection.overview }}</p>
+          <div class="collection-parts"><article v-for="part in movie.collection.parts" :key="part.id"><img v-if="part.poster_path" :src="imageUrl(part.poster_path, 'w185')" :alt="part.title" /><div v-else></div><strong>{{ part.title }}</strong><span>{{ part.year }}</span></article></div>
         </section>
 
         <section v-if="movieStills.length" class="detail-panel stills-panel detail-module reveal-section" style="order:98">
@@ -429,10 +491,16 @@ onBeforeUnmount(() => {
             </div>
           </section>
 
-          <label class="record-field">
-            <span>观看日期</span>
-            <input v-model="draftDate" type="date" />
-          </label>
+          <div class="record-meta-fields">
+            <div class="record-field record-date-field">
+              <span>观看日期</span>
+              <button type="button" @click="recordDatePickerOpen = true"><CalendarDays :size="14" /><strong>{{ draftDate || '选择日期' }}</strong></button>
+            </div>
+            <div class="record-field record-tag-field">
+              <span>标签</span>
+              <div role="group" aria-label="重看标签"><button v-for="tag in ['二刷','三刷']" :key="tag" type="button" :class="{ selected: draftRewatchTag === tag }" @click="draftRewatchTag = draftRewatchTag === tag ? '' : tag">{{ tag }}</button></div>
+            </div>
+          </div>
           <label class="record-field record-review-field">
             <span>个人评论</span>
             <textarea v-model="draftReview" rows="4" placeholder="写下这次观影留下的感受……"></textarea>
@@ -441,6 +509,7 @@ onBeforeUnmount(() => {
         </section>
       </div>
     </Transition>
+    <DatePickerDialog v-model="draftDate" v-model:open="recordDatePickerOpen" title="选择观看日期" />
 
     <footer class="detail-dock">
       <button class="edit-dock" aria-label="编辑我的记录" @click="openRecordEditor"><Pencil :size="24" /></button>
@@ -451,6 +520,7 @@ onBeforeUnmount(() => {
       </div>
     </footer>
     <ImageViewer v-if="viewerImage" v-bind="viewerImage" @close="viewerImage = null" />
+    <PersonDetailModal v-if="selectedPerson" :person="selectedPerson" :image-src="imageUrl(selectedPerson.profile_path, 'w500')" @close="selectedPerson = null" />
   </article>
 </template>
 

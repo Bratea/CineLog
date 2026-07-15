@@ -5,6 +5,7 @@ import MovieCarousel from './components/MovieCarousel.vue'
 import MovieList from './components/MovieList.vue'
 import MovieDetail from './components/MovieDetail.vue'
 import AppNotice from './components/AppNotice.vue'
+import DatePickerDialog from './components/DatePickerDialog.vue'
 import CategorySettings from './components/CategorySettings.vue'
 import DetailLayoutSettings from './components/DetailLayoutSettings.vue'
 import DatabaseSettings from './components/DatabaseSettings.vue'
@@ -945,7 +946,7 @@ function addTmdbMovie(result) {
 
 async function ensureTmdbDetails(movie) {
   const rawId = movie?.tmdbId ?? (String(movie?.id || '').startsWith('tmdb-') ? String(movie.id).slice(5) : null)
-  if (!rawId || movie.detailState === 'loading' || (movie.detailState === 'success' && movie.stills?.length)) return
+  if (!rawId || movie.detailState === 'loading' || (movie.detailState === 'success' && movie.detailVersion >= 2)) return
   if (!tmdbToken.value.trim()) {
     movie.detailState = 'error'
     movie.detailError = '请先在设置中配置 TMDB API 密钥。'
@@ -958,13 +959,19 @@ async function ensureTmdbDetails(movie) {
     const base = tmdbApiBase.value.trim().replace(/\/$/, '')
     const request = tmdbRequest(`${base}/movie/${rawId}`, {
       language: 'zh-CN',
-      append_to_response: 'credits,videos,release_dates,images',
+      append_to_response: 'credits,videos,release_dates,images,keywords',
       include_video_language: 'zh,en,null',
       include_image_language: 'zh,en,null',
     })
     const response = await fetch(request.url, request.options)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const detail = await response.json()
+    let collectionDetail = null
+    if (detail.belongs_to_collection?.id) {
+      const collectionRequest = tmdbRequest(`${base}/collection/${detail.belongs_to_collection.id}`, { language: 'zh-CN' })
+      const collectionResponse = await fetch(collectionRequest.url, collectionRequest.options)
+      if (collectionResponse.ok) collectionDetail = await collectionResponse.json()
+    }
     const director = detail.credits?.crew?.find((person) => person.job === 'Director')
     const trailer = detail.videos?.results?.find((video) => video.site === 'YouTube' && video.type === 'Trailer' && video.official)
       || detail.videos?.results?.find((video) => video.site === 'YouTube' && ['Trailer', 'Teaser'].includes(video.type))
@@ -988,6 +995,30 @@ async function ensureTmdbDetails(movie) {
       tmdbVoteCount: detail.vote_count || movie.tmdbVoteCount || 0,
       popularity: detail.popularity || movie.popularity || 0,
       certification,
+      detailVersion: 2,
+      filmInfo: {
+        countries: (detail.production_countries || []).map((item) => item.name).filter(Boolean),
+        languages: (detail.spoken_languages || []).map((item) => item.name || item.english_name).filter(Boolean),
+        originalLanguage: detail.original_language || '',
+        status: detail.status || '',
+      },
+      productionCompanies: (detail.production_companies || []).slice(0, 6).map((company) => ({ id: company.id, name: company.name, logo_path: company.logo_path, country: company.origin_country })),
+      crew: (detail.credits?.crew || []).filter((person) => ['Director', 'Screenplay', 'Writer', 'Producer', 'Director of Photography', 'Original Music Composer', 'Editor'].includes(person.job)).filter((person, index, list) => list.findIndex((item) => item.id === person.id && item.job === person.job) === index).slice(0, 10).map((person) => ({ id: person.id, name: person.name, role: person.job, profile_path: person.profile_path })),
+      keywords: (detail.keywords?.keywords || detail.keywords?.results || []).slice(0, 14).map((keyword) => keyword.name),
+      releases: (detail.release_dates?.results || []).filter((region) => region.release_dates?.length).slice(0, 8).map((region) => {
+        const release = region.release_dates[0]
+        return { country: region.iso_3166_1, date: release.release_date?.slice(0, 10) || '', certification: release.certification || '', type: release.type || 0 }
+      }),
+      videos: (detail.videos?.results || []).filter((video) => (video.site === 'YouTube' || video.site === 'Vimeo') && video.key).slice(0, 8).map((video) => ({ id: video.id, name: video.name, type: video.type, official: video.official, url: video.site === 'YouTube' ? `https://www.youtube.com/watch?v=${video.key}` : `https://vimeo.com/${video.key}` })),
+      posters: (detail.images?.posters || []).slice(0, 10).map((image) => ({ file_path: image.file_path, width: image.width, height: image.height, language: image.iso_639_1 })),
+      collection: collectionDetail ? {
+        id: collectionDetail.id,
+        name: collectionDetail.name,
+        overview: collectionDetail.overview,
+        poster_path: collectionDetail.poster_path,
+        backdrop_path: collectionDetail.backdrop_path,
+        parts: (collectionDetail.parts || []).sort((a, b) => String(a.release_date || '').localeCompare(String(b.release_date || ''))).map((part) => ({ id: part.id, title: part.title, year: part.release_date?.slice(0, 4) || '', poster_path: part.poster_path })),
+      } : null,
       director: director ? { id: director.id, name: director.name, role: '导演', profile_path: director.profile_path } : null,
       cast: (detail.credits?.cast || []).slice(0, 8).map((person) => ({
         id: person.id,
@@ -1021,7 +1052,30 @@ function updateMovieRecord(record) {
     rating: record.rating || null,
     watchedDate: record.date || '',
     feeling: record.review?.trim() || '',
+    rewatchTag: record.rewatchTag || '',
   })
+}
+
+async function requestPersonDetails(person) {
+  if (!person?.id || person.detailState === 'loading' || person.detailState === 'success') return
+  person.detailState = 'loading'
+  try {
+    const base = tmdbApiBase.value.trim().replace(/\/$/, '')
+    const request = tmdbRequest(`${base}/person/${person.id}`, { language: 'zh-CN', append_to_response: 'movie_credits' })
+    const response = await fetch(request.url, request.options)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const detail = await response.json()
+    const imageBase = tmdbImageBase.value.trim().replace(/\/$/, '')
+    Object.assign(person, {
+      biography: detail.biography || '',
+      birthday: detail.birthday || '',
+      placeOfBirth: detail.place_of_birth || '',
+      knownFor: (detail.movie_credits?.cast || []).filter((work) => work.poster_path).sort((a, b) => (b.popularity || 0) - (a.popularity || 0)).slice(0, 8).map((work) => ({ id: work.id, title: work.title, year: work.release_date?.slice(0, 4) || '', poster: `${imageBase}/w185${work.poster_path}` })),
+      detailState: 'success',
+    })
+  } catch (error) {
+    person.detailState = 'error'
+  }
 }
 
 function navigateDetail(direction) {
@@ -1275,7 +1329,7 @@ function navigateDetail(direction) {
                       <button class="tmdb-confirm-add" @click="addTmdbMovie(selectedTmdbResult)"><Check :size="15" />确认添加</button>
                     </section>
                   </div>
-                  <Transition name="date-calendar"><div v-if="addDatePickerOpen" class="tmdb-date-calendar-backdrop" @click.self="addDatePickerOpen = false"><section class="tmdb-date-calendar" role="dialog" aria-modal="true" aria-label="选择观看日期"><header><strong>{{ addDateTitle }}</strong><div><button type="button" aria-label="上个月" @click="moveAddDateMonth(-1)"><ChevronLeft :size="14" /></button><button type="button" aria-label="下个月" @click="moveAddDateMonth(1)"><ChevronRight :size="14" /></button></div></header><div class="tmdb-date-week" aria-hidden="true"><span v-for="weekday in ['日', '一', '二', '三', '四', '五', '六']" :key="weekday">{{ weekday }}</span></div><div class="tmdb-date-grid"><button v-for="date in addDateCalendarDays" :key="date.value" type="button" :class="{ outside: !date.currentMonth, today: date.today, selected: addWatchedDate === date.value }" :aria-label="date.value" :aria-pressed="addWatchedDate === date.value" @click="selectAddWatchedDate(date.value)">{{ date.day }}</button></div><footer><button type="button" @click="clearAddWatchedDate">清除</button><button type="button" @click="selectAddWatchedToday">今天</button></footer></section></div></Transition>
+                  <DatePickerDialog v-model="addWatchedDate" v-model:open="addDatePickerOpen" title="选择观看日期" />
                 </section>
               </div>
             </Transition>
@@ -1285,7 +1339,7 @@ function navigateDetail(direction) {
 
       <div v-if="posterFlight" class="poster-flight" :class="`poster-flight--${posterFlight.movie.poster}`" :style="{ '--flight-left': `${posterFlight.left}px`, '--flight-top': `${posterFlight.top}px`, '--flight-width': `${posterFlight.width}px`, '--flight-height': `${posterFlight.height}px`, ...libraryPosterStyle(posterFlight.movie) }" aria-hidden="true"></div>
 
-      <MovieDetail v-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" :entry-mode="detailEntry" :layout-order="detailLayout.map((item) => item.id)" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" @update-record="updateMovieRecord" />
+      <MovieDetail v-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" :entry-mode="detailEntry" :layout-order="detailLayout.map((item) => item.id)" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" @update-record="updateMovieRecord" @request-person="requestPersonDetails" />
 
       <Transition name="settings-shell">
         <section v-if="currentPage === 'settings'" class="personal-settings">
