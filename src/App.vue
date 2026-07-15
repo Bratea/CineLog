@@ -17,12 +17,24 @@ import pixelRows from './assets/pixel-rows.webp'
 
 const currentPage = ref('home')
 const sampleRecordDates = ['2026-07-12', '2026-07-13', '2026-07-15', '2026-07-14']
-const movieRecords = ref(movies.map((movie, index) => ({
+const MOVIE_RECORDS_STORAGE_KEY = 'movie-records-v1'
+const defaultMovieRecords = movies.map((movie, index) => ({
   ...movie,
   favourite: index === 0,
   recordDate: movie.recordDate || sampleRecordDates[index] || '2026-07-15',
   releaseDate: movie.releaseDate || sampleRecordDates[index] || '',
-})))
+}))
+
+function loadMovieRecords() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(MOVIE_RECORDS_STORAGE_KEY))
+    return Array.isArray(saved) ? saved : defaultMovieRecords
+  } catch {
+    return defaultMovieRecords
+  }
+}
+
+const movieRecords = ref(loadMovieRecords())
 const activeTab = ref('home')
 const addOpen = ref(false)
 const username = ref(localStorage.getItem('movie-username') || '通通')
@@ -235,6 +247,13 @@ watch(libraryDateBasis, (value) => localStorage.setItem('movie-library-date-basi
 watch(libraryYearValue, (value) => localStorage.setItem('movie-library-year', String(value)))
 watch(libraryMonthValue, (value) => localStorage.setItem('movie-library-month', String(value)))
 watch(selectedLibraryDay, (value) => localStorage.setItem('movie-library-day', String(value)))
+watch(movieRecords, (value) => {
+  try {
+    localStorage.setItem(MOVIE_RECORDS_STORAGE_KEY, JSON.stringify(value))
+  } catch (error) {
+    console.error('电影记录保存到本地失败：', error)
+  }
+}, { deep: true })
 watch(categorySettings, (value) => localStorage.setItem('movie-category-settings', JSON.stringify(value)), { deep: true })
 watch(detailLayout, (value) => localStorage.setItem('movie-detail-layout', JSON.stringify(value.map((item) => item.id))), { deep: true })
 watch(libraryMediaTypes, (types) => {
@@ -273,6 +292,14 @@ function openDetail(movie) {
 function cycleLibraryWatchFilter() {
   const index = libraryWatchStates.value.findIndex((state) => state.value === libraryWatchFilter.value)
   libraryWatchFilter.value = libraryWatchStates.value[(index + 1) % libraryWatchStates.value.length].value
+}
+
+function resetLibraryDate() {
+  const today = new Date()
+  libraryYearValue.value = today.getFullYear()
+  libraryMonthValue.value = today.getMonth() + 1
+  selectedLibraryDay.value = today.getDate()
+  expandedLibraryId.value = null
 }
 
 function openDetailFromPoster(movie, source) {
@@ -894,6 +921,7 @@ function navigateDetail(direction) {
                 <div class="date-option-row"><span>月份</span><div><button v-for="month in 12" :key="month" :class="{ selected: libraryMonthValue === month }" @click="libraryMonthValue = month">{{ month }}月</button></div></div>
                 <div class="date-option-row"><span>日期</span><div><button v-for="date in libraryDateItems" :key="date.day" :class="{ selected: selectedLibraryDay === date.day }" @click="selectedLibraryDay = date.day; libraryDateExpanded = false">{{ date.day }}</button></div></div>
               </div>
+              <button type="button" class="date-dock__reset" aria-label="重置为今天" @click.stop="resetLibraryDate">重置</button>
             </aside>
             <div class="library-status-stack" role="group" aria-label="观看状态筛选">
               <button class="status-cycle-button" :class="`is-${activeLibraryWatchState.value}`" :aria-label="`当前${activeLibraryWatchState.label}，点击切换观看状态`" @click="cycleLibraryWatchFilter">
