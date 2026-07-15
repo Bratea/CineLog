@@ -19,6 +19,8 @@ const dragY = ref(0)
 const dragAxis = ref(null)
 const isDragging = ref(false)
 const isOpeningDetail = ref(false)
+const isReturning = ref(false)
+const dragVelocityY = ref(0)
 const swipeStartX = ref(null)
 const swipeX = ref(0)
 const swipeMax = ref(0)
@@ -28,7 +30,10 @@ const swipeArmed = ref(false)
 const settlePulse = ref(false)
 
 let openTimer
+let returnTimer
 let swipeArmTimer
+let lastDragY = 0
+let lastDragTime = 0
 
 let renderer
 let scene
@@ -63,11 +68,16 @@ function move(direction) {
 
 function pointerDown(event) {
   if (isOpeningDetail.value || event.target.closest('.watch-slider')) return
+  window.clearTimeout(returnTimer)
+  isReturning.value = false
   dragStart.value = { x: event.clientX, y: event.clientY }
   dragX.value = 0
   dragY.value = 0
+  dragVelocityY.value = 0
   dragAxis.value = null
   isDragging.value = true
+  lastDragY = event.clientY
+  lastDragTime = event.timeStamp || performance.now()
   event.currentTarget.setPointerCapture?.(event.pointerId)
 }
 
@@ -75,12 +85,20 @@ function pointerMove(event) {
   if (dragStart.value === null) return
   const deltaX = event.clientX - dragStart.value.x
   const deltaY = event.clientY - dragStart.value.y
+  const now = event.timeStamp || performance.now()
+  const elapsed = Math.max(8, now - lastDragTime)
+  const instantVelocityY = (event.clientY - lastDragY) / elapsed
+  dragVelocityY.value = dragVelocityY.value * .68 + instantVelocityY * .32
+  lastDragY = event.clientY
+  lastDragTime = now
   if (!dragAxis.value && Math.hypot(deltaX, deltaY) > 7) {
     if (deltaY < -5 && Math.abs(deltaY) > Math.abs(deltaX) * .7) dragAxis.value = 'vertical'
     else if (Math.abs(deltaX) > Math.abs(deltaY) * 1.15) dragAxis.value = 'horizontal'
   }
   if (dragAxis.value === 'vertical') {
-    dragY.value = Math.max(-126, Math.min(24, deltaY))
+    const upwardDistance = Math.max(0, -deltaY)
+    const resistedUpward = upwardDistance <= 92 ? upwardDistance : 92 + (upwardDistance - 92) * .34
+    dragY.value = deltaY < 0 ? -Math.min(132, resistedUpward) : Math.min(20, deltaY * .38)
   } else if (dragAxis.value === 'horizontal') {
     dragX.value = Math.max(-110, Math.min(110, deltaX))
   }
@@ -88,15 +106,21 @@ function pointerMove(event) {
 
 function pointerUp() {
   if (dragStart.value === null) return
-  if (dragAxis.value === 'vertical' && dragY.value < -56) {
+  const shouldOpenDetail = dragAxis.value === 'vertical' && (dragY.value < -58 || (dragY.value < -40 && dragVelocityY.value < -.72))
+  if (shouldOpenDetail) {
     beginDetailOpen(activeMovie.value)
   } else if (dragAxis.value === 'horizontal' && Math.abs(dragX.value) > 46) {
     move(dragX.value > 0 ? -1 : 1)
+  } else if (dragAxis.value === 'vertical' && dragY.value !== 0) {
+    isReturning.value = true
+    window.clearTimeout(returnTimer)
+    returnTimer = window.setTimeout(() => { isReturning.value = false }, 640)
   }
 
   dragStart.value = null
   dragX.value = 0
   if (!isOpeningDetail.value) dragY.value = 0
+  dragVelocityY.value = 0
   dragAxis.value = null
   isDragging.value = false
 }
@@ -104,16 +128,18 @@ function pointerUp() {
 function beginDetailOpen(movie) {
   if (!movie || isOpeningDetail.value) return
   isOpeningDetail.value = true
-  dragY.value = -112
-  openTimer = window.setTimeout(() => emit('open-detail', movie), 330)
+  openTimer = window.setTimeout(() => emit('open-detail', movie), 480)
 }
 
 function resetOpenState() {
   window.clearTimeout(openTimer)
+  window.clearTimeout(returnTimer)
   isOpeningDetail.value = false
+  isReturning.value = false
   dragStart.value = null
   dragX.value = 0
   dragY.value = 0
+  dragVelocityY.value = 0
   dragAxis.value = null
   isDragging.value = false
 }
@@ -135,8 +161,9 @@ function cardStyle(offset) {
     '--x': `${value * 58}%`,
     '--rotate': `${value * 5}deg`,
     '--tilt': `${value * -6}deg`,
-    '--lift': isActive ? `${progress * -46}px` : '12px',
-    '--scale': isActive ? 1 + progress * .09 : 0.9,
+    '--lift': isActive ? `${progress * -50}px` : '12px',
+    '--scale': isActive ? 1 + progress * .075 : 0.9,
+    '--open-tilt': isActive ? `${progress * -1.6}deg` : '0deg',
     '--open-progress': progress,
     '--opacity': isActive ? 1 : 0.76,
     '--blur': isActive ? '0px' : '.35px',
@@ -261,6 +288,7 @@ watch(() => props.active, (active) => { if (!active) resetOpenState() })
 onMounted(setupThree)
 onBeforeUnmount(() => {
   window.clearTimeout(openTimer)
+  window.clearTimeout(returnTimer)
   window.clearTimeout(swipeArmTimer)
   cancelAnimationFrame(frame)
   resizeObserver?.disconnect()
@@ -274,7 +302,7 @@ onBeforeUnmount(() => {
     <div
       ref="deck"
       class="deck"
-      :class="{ dragging: isDragging, 'opening-detail': isOpeningDetail }"
+      :class="{ dragging: isDragging, returning: isReturning, 'opening-detail': isOpeningDetail }"
       @pointerdown="pointerDown"
       @pointermove="pointerMove"
       @pointerup="pointerUp"
@@ -348,11 +376,15 @@ onBeforeUnmount(() => {
 .album { margin: 0; }
 .deck { position: relative; height: 374px; margin: 0 15px; overflow: hidden; border-radius: 30px; touch-action: none; user-select: none; perspective: 1250px; }
 .three-glow { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; opacity: .7; }
-.album-card { position: absolute; z-index: var(--z); bottom: 0; left: 50%; width: min(69vw, 302px); height: 358px; overflow: hidden; color: #fff; border: 1px solid rgba(255,255,255,.38); border-radius: calc(27px - var(--open-progress, 0) * 5px); box-shadow: 0 calc(19px + var(--open-progress, 0) * 12px) 30px rgba(9, 10, 14, calc(.19 + var(--open-progress, 0) * .13)); opacity: var(--opacity); transform-origin: center bottom; transform: translateX(calc(-50% + var(--x))) translateY(var(--lift)) rotateZ(var(--tilt)) rotateY(calc(var(--rotate) * -.45)) scale(var(--scale)); filter: blur(var(--blur)); transition: transform 820ms cubic-bezier(.16, 1, .3, 1), opacity 620ms ease, filter 620ms ease, border-radius 420ms ease, box-shadow 420ms ease; will-change: transform; backface-visibility: hidden; animation: card-rise .82s cubic-bezier(.16, 1,.3, 1) both; }
+.album-card { position: absolute; z-index: var(--z); bottom: 0; left: 50%; width: min(69vw, 302px); height: 358px; overflow: hidden; color: #fff; border: 1px solid rgba(255,255,255,.38); border-radius: calc(27px - var(--open-progress, 0) * 5px); box-shadow: 0 calc(19px + var(--open-progress, 0) * 12px) 30px rgba(9, 10, 14, calc(.19 + var(--open-progress, 0) * .13)); opacity: var(--opacity); transform-origin: center bottom; transform: translateX(calc(-50% + var(--x))) translateY(var(--lift)) rotateZ(var(--tilt)) rotateX(var(--open-tilt,0deg)) rotateY(calc(var(--rotate) * -.45)) scale(var(--scale)); filter: blur(var(--blur)); transition: transform 820ms cubic-bezier(.16, 1, .3, 1), opacity 620ms ease, filter 620ms ease, border-radius 420ms ease, box-shadow 420ms ease; will-change: transform; backface-visibility: hidden; animation: card-rise .82s cubic-bezier(.16, 1,.3, 1) both; }
 .album-card.active-card { cursor: ns-resize; }
 .dragging .album-card { transition: none; }
-.opening-detail .album-card:not(.active-card) { opacity: 0 !important; transform: translateX(calc(-50% + var(--x))) translateY(24px) scale(.84); transition: transform 300ms cubic-bezier(.22,.8,.2,1), opacity 220ms ease; }
-.opening-detail .album-card.active-card { z-index: 6; border-radius: 18px; box-shadow: 0 36px 68px rgba(9,10,14,.4); transition: transform 330ms cubic-bezier(.18,.86,.22,1), border-radius 330ms ease, box-shadow 330ms ease; }
+.returning .album-card.active-card { transition:transform .62s cubic-bezier(.2,.86,.24,1.12),border-radius .42s ease,box-shadow .42s ease; }
+.opening-detail .album-card:not(.active-card) { opacity: 0 !important; transform: translateX(calc(-50% + var(--x))) translateY(34px) scale(.82); transition: transform .44s cubic-bezier(.3,.7,.25,1), opacity .3s ease; }
+.opening-detail .album-card.active-card { z-index: 6; border-radius: 17px; box-shadow: 0 38px 74px rgba(9,10,14,.42); animation:card-open-lift .5s cubic-bezier(.2,.72,.18,1) both; transition:border-radius .48s ease,box-shadow .48s ease; }
+.opening-detail .active-card .poster-image { animation:poster-open-lift .5s cubic-bezier(.2,.72,.18,1) both; }
+.opening-detail .active-card .album-info { animation:card-info-release .36s ease-out both; }
+.opening-detail .three-glow { opacity:.18; transform:scale(1.05); transition:opacity .42s ease,transform .5s cubic-bezier(.2,.72,.18,1); }
 .album-card.settle-pop { animation: settle-pop .62s cubic-bezier(.16,1,.3,1) both; }
 .poster-image { position: absolute; inset: 0; background-size: 129% auto; background-position: center 35%; background-repeat: no-repeat; }
 .poster-image::after { content: ''; position: absolute; inset: 24% 0 0; background: linear-gradient(180deg, transparent 0%, rgba(7, 9, 12, .05) 25%, rgba(7, 9, 12, .72) 70%, rgba(7, 9, 12, .92) 100%); }
@@ -395,6 +427,9 @@ onBeforeUnmount(() => {
 .dots i.active { width: 19px; background: #17181b; }
 @keyframes card-rise { from { opacity: 0; transform: translateX(calc(-50% + var(--x))) translateY(38px) rotateZ(var(--tilt)) rotateY(calc(var(--rotate) * -.45)) scale(calc(var(--scale) * .95)); } }
 @keyframes settle-pop { 0% { transform: translateX(calc(-50% + var(--x))) translateY(8px) rotateZ(var(--tilt)) scale(.96); } 68% { transform: translateX(calc(-50% + var(--x))) translateY(-3px) rotateZ(var(--tilt)) scale(1.035); } 100% { transform: translateX(calc(-50% + var(--x))) translateY(var(--lift)) rotateZ(var(--tilt)) scale(var(--scale)); } }
+@keyframes card-open-lift { 0% { transform:translateX(calc(-50% + var(--x))) translateY(var(--lift)) rotateZ(var(--tilt)) rotateX(var(--open-tilt,0deg)) scale(var(--scale)); } 68% { transform:translateX(calc(-50% + var(--x))) translateY(-82px) rotateZ(0) rotateX(-.35deg) scale(1.145); } 100% { transform:translateX(calc(-50% + var(--x))) translateY(-74px) rotateZ(0) rotateX(0) scale(1.13); } }
+@keyframes poster-open-lift { 0% { transform:scale(1); filter:saturate(1); } 100% { transform:scale(1.045); filter:saturate(1.08); } }
+@keyframes card-info-release { 0% { opacity:1; transform:none; } 100% { opacity:.28; transform:translateY(12px); } }
 @keyframes success-handle { 0% { transform: translateX(var(--swipe-x)) scale(.84); box-shadow: 0 0 0 0 rgba(131,221,176,.65); } 55% { transform: translateX(var(--swipe-x)) scale(1.16); box-shadow: 0 0 0 9px rgba(131,221,176,0); } 100% { transform: translateX(var(--swipe-x)) scale(1); box-shadow: 0 4px 11px rgba(0,0,0,.18); } }
 @keyframes success-ring { to { stroke-dashoffset: 0; } }
 @keyframes success-check { to { stroke-dashoffset: 0; } }

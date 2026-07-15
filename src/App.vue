@@ -100,6 +100,8 @@ const tmdbPage = ref(0)
 const tmdbTotalPages = ref(0)
 const tmdbTotalResults = ref(0)
 const tmdbLoadingMore = ref(false)
+const tmdbVisibleCount = ref(10)
+const tmdbLoadArmed = ref(false)
 const tmdbRefreshing = ref(false)
 const tmdbRefreshPull = ref(0)
 const tmdbPullStart = ref(null)
@@ -108,6 +110,7 @@ const addMediaType = ref('电影')
 const addWatched = ref(false)
 const addRating = ref(0)
 const addReview = ref('')
+const recordNotice = ref(null)
 const recordClosing = ref(false)
 const libraryWatchFilter = ref('all')
 const librarySortBy = ref(localStorage.getItem('movie-library-sort') || 'release')
@@ -174,8 +177,10 @@ const categorySettings = ref(loadCategorySettings())
 
 let watchConfirmTimer
 let surfaceSettleTimer
+let recordNoticeTimer
 
 const watchedCount = computed(() => movieRecords.value.filter((movie) => movie.watched).length)
+const displayedTmdbResults = computed(() => tmdbResults.value.slice(0, tmdbVisibleCount.value))
 const avatarUrlInput = computed({
   get: () => avatarUrl.value.startsWith('data:') ? '' : avatarUrl.value,
   set: (value) => { avatarUrl.value = value },
@@ -573,6 +578,7 @@ function closeRecordSheet() {
     addOpen.value = false
     recordExpanded.value = false
     selectedTmdbResult.value = null
+    recordNotice.value = null
     recordClosing.value = false
   }, recordExpanded.value ? 560 : 320)
 }
@@ -612,6 +618,8 @@ async function searchTmdb({ refresh = false } = {}) {
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const data = await response.json()
     tmdbResults.value = data.results || []
+    tmdbVisibleCount.value = 10
+    tmdbLoadArmed.value = false
     tmdbPage.value = 1
     tmdbTotalPages.value = Math.min(data.total_pages || 1, 500)
     tmdbTotalResults.value = data.total_results ?? tmdbResults.value.length
@@ -627,9 +635,15 @@ async function searchTmdb({ refresh = false } = {}) {
 }
 
 async function loadMoreTmdb() {
-  if (tmdbLoadingMore.value || tmdbSearchState.value !== 'success' || tmdbPage.value >= tmdbTotalPages.value) return
+  if (tmdbLoadingMore.value || tmdbSearchState.value !== 'success' || tmdbVisibleCount.value >= tmdbTotalResults.value) return
   tmdbLoadingMore.value = true
   try {
+    await new Promise((resolve) => window.setTimeout(resolve, 360))
+    if (tmdbVisibleCount.value < tmdbResults.value.length) {
+      tmdbVisibleCount.value = Math.min(tmdbVisibleCount.value + 10, tmdbResults.value.length, tmdbTotalResults.value)
+      return
+    }
+    if (tmdbPage.value >= tmdbTotalPages.value) return
     const base = tmdbApiBase.value.trim().replace(/\/$/, '')
     const nextPage = tmdbPage.value + 1
     const request = tmdbRequest(`${base}/search/movie`, { query: tmdbSearchLastQuery.value, language: 'zh-CN', include_adult: 'false', page: String(nextPage) })
@@ -639,6 +653,7 @@ async function loadMoreTmdb() {
     const existingIds = new Set(tmdbResults.value.map((item) => item.id))
     tmdbResults.value = [...tmdbResults.value, ...(data.results || []).filter((item) => !existingIds.has(item.id))]
     tmdbPage.value = nextPage
+    tmdbVisibleCount.value = Math.min(tmdbVisibleCount.value + 10, tmdbResults.value.length, tmdbTotalResults.value)
   } catch (error) {
     tmdbSearchMessage.value = `加载更多失败（${error.message}），请稍后重试。`
   } finally {
@@ -648,7 +663,14 @@ async function loadMoreTmdb() {
 
 function handleTmdbScroll(event) {
   const target = event.currentTarget
-  if (target.scrollHeight - target.scrollTop - target.clientHeight < 90) loadMoreTmdb()
+  if (tmdbLoadArmed.value && target.scrollHeight - target.scrollTop - target.clientHeight < 70) {
+    tmdbLoadArmed.value = false
+    loadMoreTmdb()
+  }
+}
+
+function armTmdbLoad(event) {
+  if (event.deltaY === undefined || event.deltaY > 0) tmdbLoadArmed.value = true
 }
 
 function startTmdbPull(event) {
@@ -657,7 +679,11 @@ function startTmdbPull(event) {
 }
 
 function moveTmdbPull(event) {
-  if (tmdbPullStart.value === null || event.currentTarget.scrollTop > 0) return
+  if (event.currentTarget.scrollTop > 0) {
+    tmdbLoadArmed.value = true
+    return
+  }
+  if (tmdbPullStart.value === null) return
   const clientY = event.touches?.[0]?.clientY ?? event.clientY
   tmdbRefreshPull.value = Math.min(72, Math.max(0, (clientY - tmdbPullStart.value) * .42))
 }
@@ -678,7 +704,15 @@ function resetTmdbSearch() {
   tmdbPage.value = 0
   tmdbTotalPages.value = 0
   tmdbTotalResults.value = 0
+  tmdbVisibleCount.value = 10
+  tmdbLoadArmed.value = false
   selectedTmdbResult.value = null
+}
+
+function showRecordNotice(title, message, type = 'success') {
+  window.clearTimeout(recordNoticeTimer)
+  recordNotice.value = { title, message, type }
+  recordNoticeTimer = window.setTimeout(() => { recordNotice.value = null }, 3200)
 }
 
 function viewTmdbResult(result) {
@@ -695,7 +729,7 @@ function viewTmdbResult(result) {
 
 function addTmdbMovie(result) {
   if (movieRecords.value.some((movie) => String(movie.id) === `tmdb-${result.id}`)) {
-    tmdbSearchMessage.value = '这部电影已经在记录中了。'
+    showRecordNotice('无需重复添加', '这部影片已经在你的记录中了。', 'warning')
     return
   }
   const movie = {
@@ -724,8 +758,8 @@ function addTmdbMovie(result) {
   }
   movieRecords.value.unshift(movie)
   activeWatchStat.value = addWatched.value ? 'watched' : 'unwatched'
-  tmdbSearchMessage.value = `已将《${result.title || result.original_title}》加入${addWatched.value ? '已观看' : '未观看'}。`
   selectedTmdbResult.value = null
+  showRecordNotice('添加成功', `《${result.title || result.original_title}》已加入${addWatched.value ? '已观看' : '未观看'}。`)
 }
 
 async function ensureTmdbDetails(movie) {
@@ -1008,23 +1042,26 @@ function navigateDetail(direction) {
             <h2>记录一部电影</h2><p>输入电影名称，从 TMDB 获取封面和影片资料。</p><button @click="startRecord">开始记录</button>
           </template>
           <template v-else>
+            <Transition name="record-notice">
+              <aside v-if="recordNotice" class="record-notice" :class="`is-${recordNotice.type}`" role="status" aria-live="polite"><span><Check :size="15" /></span><div><strong>{{ recordNotice.title }}</strong><p>{{ recordNotice.message }}</p></div><button aria-label="关闭提示" @click="recordNotice = null"><X :size="13" /></button></aside>
+            </Transition>
             <header class="record-header" :class="{ 'has-results': tmdbSearchState === 'success' && tmdbResults.length }"><div><small>{{ tmdbSearchState === 'success' && tmdbResults.length ? `搜索结果 · ${tmdbTotalResults} 部` : '新建记录' }}</small><h2>{{ tmdbSearchState === 'success' && tmdbResults.length ? `“${tmdbSearchLastQuery}”` : '搜索一部电影' }}</h2></div><button aria-label="关闭添加电影" @click="closeRecordSheet"><X :size="19" /></button></header>
             <form class="tmdb-search" :class="{ 'is-complete': tmdbSearchState === 'success' && tmdbResults.length }" @submit.prevent="tmdbSearchState === 'success' && tmdbResults.length ? resetTmdbSearch() : searchTmdb()"><Search :size="18" /><input v-model="tmdbQuery" autofocus type="search" placeholder="输入电影名称，例如：流浪地球" aria-label="TMDB电影名称" /><button type="submit" :disabled="tmdbSearchState === 'loading'">{{ tmdbSearchState === 'loading' ? '搜索中' : tmdbSearchState === 'success' && tmdbResults.length ? '重新搜索' : '搜索' }}</button></form>
             <div v-if="!tmdbToken" class="record-api-note"><Database :size="18" /><div><strong>还没有配置 TMDB API 密钥</strong><span>先完成设置，之后输入名称即可获取电影。</span></div><button @click="openTmdbSettingsFromRecord">去设置</button></div>
             <div v-else-if="tmdbSearchState === 'idle'" class="record-empty"><Search :size="24" /><strong>按名称查找 TMDB</strong><span>搜索结果只用于展示和创建观影记录。</span></div>
             <div v-if="tmdbSearchMessage" class="record-message" :class="`is-${tmdbSearchState}`">{{ tmdbSearchMessage }}</div>
-            <div v-if="tmdbSearchState === 'success' && tmdbResults.length" class="tmdb-results-status"><span>已显示 {{ tmdbResults.length }} / {{ tmdbTotalResults }} 部</span><small>下拉刷新 · 触底加载更多</small></div>
+            <div v-if="tmdbSearchState === 'success' && tmdbResults.length" class="tmdb-results-status"><span>已显示 {{ displayedTmdbResults.length }} / {{ tmdbTotalResults }} 部</span><small>每次加载 10 部</small></div>
             <div v-if="tmdbSearchState === 'success' && !tmdbResults.length" class="record-no-results"><Search :size="24" /><strong>没有找到“{{ tmdbSearchLastQuery }}”</strong><span>TMDB 不会自动纠正中文错别字，请检查片名，或尝试原名、英文名。</span></div>
-            <div v-if="tmdbResults.length" class="tmdb-results" :style="{ '--refresh-pull': `${tmdbRefreshPull}px` }" @scroll="handleTmdbScroll" @touchstart="startTmdbPull" @touchmove="moveTmdbPull" @touchend="endTmdbPull" @touchcancel="endTmdbPull">
+            <div v-if="tmdbResults.length" class="tmdb-results" :style="{ '--refresh-pull': `${tmdbRefreshPull}px` }" @scroll="handleTmdbScroll" @wheel.passive="armTmdbLoad" @touchstart="startTmdbPull" @touchmove="moveTmdbPull" @touchend="endTmdbPull" @touchcancel="endTmdbPull">
               <div class="tmdb-refresh-indicator" :class="{ ready: tmdbRefreshPull >= 48, refreshing: tmdbRefreshing }"><i></i><span>{{ tmdbRefreshing ? '正在刷新…' : tmdbRefreshPull >= 48 ? '松开刷新' : '下拉刷新' }}</span></div>
-              <article v-for="result in tmdbResults" :key="result.id" class="tmdb-result-item" :class="{ 'is-open': selectedTmdbResult?.id === result.id }">
+              <article v-for="(result, index) in displayedTmdbResults" :key="result.id" class="tmdb-result-item" :class="{ 'is-open': selectedTmdbResult?.id === result.id }" :style="{ '--result-delay': `${(index % 10) * 48}ms` }">
                 <div class="tmdb-result-summary">
                   <div class="tmdb-result-poster" :style="tmdbPoster(result) ? { backgroundImage: `url(${tmdbPoster(result)})` } : {}"><span v-if="!result.poster_path">暂无封面</span></div>
                   <div class="tmdb-result-copy"><small>{{ result.release_date?.slice(0, 4) || '待定' }} · TMDB {{ result.vote_average?.toFixed(1) || '暂无评分' }}</small><strong>{{ result.title || result.original_title }}</strong><p>{{ result.original_title || '暂无原名' }}</p></div>
                   <button class="tmdb-view-button" :aria-expanded="selectedTmdbResult?.id === result.id" @click="viewTmdbResult(result)">{{ selectedTmdbResult?.id === result.id ? '查看中' : '查看' }}<ChevronDown :size="13" /></button>
                 </div>
               </article>
-              <button v-if="tmdbPage < tmdbTotalPages" class="tmdb-load-more" :disabled="tmdbLoadingMore" @click="loadMoreTmdb"><i></i>{{ tmdbLoadingMore ? '正在加载…' : '加载更多' }}</button>
+              <button v-if="displayedTmdbResults.length < tmdbTotalResults" class="tmdb-load-more" :disabled="tmdbLoadingMore" @click="loadMoreTmdb"><i></i>{{ tmdbLoadingMore ? '正在加载下一批…' : '加载下一批 10 部' }}</button>
               <div v-else class="tmdb-results-end">已经到底了 · 共 {{ tmdbTotalResults }} 部</div>
             </div>
 
