@@ -233,6 +233,7 @@ onBeforeUnmount(() => {
         :class="[`album-card--${movie.poster}`, { 'settle-pop': movie.offset === 0 && settlePulse }]"
         :style="cardStyle(movie.offset)"
         :role="movie.offset === 0 ? 'button' : undefined"
+        :aria-label="movie.offset === 0 ? `查看 ${movie.title} 详情` : undefined"
         :tabindex="movie.offset === 0 ? 0 : -1"
         @click="openCard(movie, movie.offset)"
         @keydown.enter.prevent="openCard(movie, movie.offset)"
