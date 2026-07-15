@@ -75,11 +75,18 @@ function showLibrary() {
 function updateWatched(value) {
   if (selectedMovie.value) selectedMovie.value.watched = value
 }
+
+function navigateDetail(direction) {
+  const currentIndex = movieRecords.value.findIndex((movie) => movie.id === selectedMovie.value?.id)
+  if (currentIndex < 0 || movieRecords.value.length < 2) return
+  const nextIndex = (currentIndex + direction + movieRecords.value.length) % movieRecords.value.length
+  selectedMovie.value = movieRecords.value[nextIndex]
+}
 </script>
 
 <template>
   <main class="app-shell">
-    <section class="phone" :aria-label="currentPage === 'home' ? `${username}的观影记录首页` : currentPage === 'library' ? '电影列表页面' : currentPage === 'detail' ? '电影详情页面' : '个人设置页面'">
+    <section class="phone" :class="{ 'phone--detail': currentPage === 'detail' }" :aria-label="currentPage === 'home' ? `${username}的观影记录首页` : currentPage === 'library' ? '电影列表页面' : currentPage === 'detail' ? '电影详情页面' : '个人设置页面'">
       <div class="ambient-orb ambient-orb--one" aria-hidden="true"></div>
       <div class="ambient-orb ambient-orb--two" aria-hidden="true"></div>
 
@@ -150,7 +157,7 @@ function updateWatched(value) {
 
       <LibraryPage v-else-if="currentPage === 'library'" :movies="movieRecords" :home-icon="pixelHome" :list-icon="pixelMovieList" @home="showHome" @open-detail="openDetail" />
 
-      <MovieDetail v-else-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" @back="closeDetail" @update-watched="updateWatched" />
+      <MovieDetail v-else-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" />
 
       <section v-else class="personal-settings">
         <header class="settings-header">

@@ -1,12 +1,21 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ArrowLeft, Check, Flame, Heart, Pencil, Star } from 'lucide-vue-next'
 import cinematicAnimeCollage from '../assets/cinematic-anime-collage.png'
 
 const props = defineProps({ movie: { type: Object, required: true } })
-const emit = defineEmits(['back', 'update-watched'])
+const emit = defineEmits(['back', 'navigate', 'update-watched'])
 const liked = ref(false)
 const scrollProgress = ref(0)
+const swipeStart = ref(null)
+const swipeAxis = ref(null)
+const swipeX = ref(0)
+const isSwipeDragging = ref(false)
+const swipeTransition = ref(true)
+const isSwitching = ref(false)
+const switchDirection = ref(0)
+
+let switchTimer
 
 const posterStyle = computed(() => {
   const path = props.movie.backdropUrl || props.movie.posterUrl || props.movie.backdrop_path || props.movie.poster_path
@@ -18,6 +27,11 @@ const posterStyle = computed(() => {
   return {}
 })
 
+const detailMotionStyle = computed(() => ({
+  '--scroll': scrollProgress.value,
+  '--swipe-x': `${swipeX.value}px`,
+}))
+
 function handleScroll(event) {
   scrollProgress.value = Math.min(1, event.currentTarget.scrollTop / 260)
 }
@@ -25,15 +39,93 @@ function handleScroll(event) {
 function setWatched(value) {
   emit('update-watched', value)
 }
+
+function detailPointerDown(event) {
+  if (isSwitching.value || event.target.closest('button, input, textarea, [role="group"]')) return
+  swipeStart.value = { x: event.clientX, y: event.clientY }
+  swipeAxis.value = null
+  swipeTransition.value = false
+  event.currentTarget.setPointerCapture?.(event.pointerId)
+}
+
+function detailPointerMove(event) {
+  if (!swipeStart.value) return
+  const deltaX = event.clientX - swipeStart.value.x
+  const deltaY = event.clientY - swipeStart.value.y
+  if (!swipeAxis.value && Math.hypot(deltaX, deltaY) > 8) {
+    swipeAxis.value = Math.abs(deltaX) > Math.abs(deltaY) * 1.12 ? 'horizontal' : 'vertical'
+    isSwipeDragging.value = swipeAxis.value === 'horizontal'
+  }
+  if (swipeAxis.value === 'horizontal') {
+    event.preventDefault()
+    swipeX.value = Math.max(-150, Math.min(150, deltaX * .82))
+  }
+}
+
+function detailPointerUp(event) {
+  if (!swipeStart.value) return
+  const deltaX = event.clientX - swipeStart.value.x
+  if (swipeAxis.value === 'horizontal' && Math.abs(deltaX) > 58) {
+    switchMovie(deltaX < 0 ? 1 : -1)
+  } else {
+    swipeTransition.value = true
+    swipeX.value = 0
+  }
+  swipeStart.value = null
+  swipeAxis.value = null
+  isSwipeDragging.value = false
+}
+
+function cancelDetailSwipe() {
+  swipeStart.value = null
+  swipeAxis.value = null
+  isSwipeDragging.value = false
+  swipeTransition.value = true
+  swipeX.value = 0
+}
+
+function switchMovie(direction) {
+  if (isSwitching.value) return
+  switchDirection.value = direction
+  isSwitching.value = true
+  swipeTransition.value = true
+  swipeX.value = direction > 0 ? -460 : 460
+  switchTimer = window.setTimeout(() => emit('navigate', direction), 270)
+}
+
+watch(() => props.movie.id, async () => {
+  window.clearTimeout(switchTimer)
+  scrollProgress.value = 0
+  swipeTransition.value = false
+  swipeX.value = switchDirection.value > 0 ? 96 : -96
+  await nextTick()
+  window.requestAnimationFrame(() => {
+    swipeTransition.value = true
+    swipeX.value = 0
+    isSwitching.value = false
+  })
+})
+
+onBeforeUnmount(() => window.clearTimeout(switchTimer))
 </script>
 
 <template>
-  <article class="movie-detail" :class="`movie-detail--${movie.poster}`" :style="{ '--scroll': scrollProgress }">
+  <article
+    class="movie-detail"
+    :class="[`movie-detail--${movie.poster}`, { 'is-swipe-dragging': isSwipeDragging, 'has-swipe-transition': swipeTransition, 'is-switching': isSwitching }]"
+    :style="detailMotionStyle"
+    @pointerdown="detailPointerDown"
+    @pointermove="detailPointerMove"
+    @pointerup="detailPointerUp"
+    @pointercancel="cancelDetailSwipe"
+  >
     <div class="detail-backdrop" :style="posterStyle"></div>
     <header class="detail-topbar">
       <button aria-label="返回" @click="emit('back')"><ArrowLeft :size="21" /></button>
       <button :class="{ active: liked }" aria-label="收藏" @click="liked = !liked"><Heart :size="20" :fill="liked ? 'currentColor' : 'none'" /></button>
     </header>
+
+    <div class="detail-swipe-hint" aria-hidden="true"><span>‹</span> 左右滑动切换电影 <span>›</span></div>
 
     <div class="detail-scroll" @scroll.passive="handleScroll">
       <section class="detail-hero-copy">
@@ -77,14 +169,19 @@ function setWatched(value) {
 </template>
 
 <style scoped lang="scss">
-.movie-detail { --accent: #f0a05b; --screen: #0a0e10; position: absolute; z-index: 12; inset: 0; overflow: hidden; color: #f6f0e9; background: var(--screen); transform-origin: 50% 32%; animation: detail-unfold .82s cubic-bezier(.16,1,.3,1) both; }
+.movie-detail { --accent: #f0a05b; --screen: #0a0e10; --swipe-x: 0px; position: absolute; z-index: 12; inset: 0; overflow: hidden; color: #f6f0e9; background: var(--screen); touch-action:pan-y; translate:var(--swipe-x) 0; transform-origin:50% 28%; will-change:translate,transform,clip-path; animation:detail-unfold .66s cubic-bezier(.18,.88,.2,1) both; }
+.movie-detail.has-swipe-transition { transition:translate .36s cubic-bezier(.18,.86,.2,1), opacity .24s ease; }
+.movie-detail.is-swipe-dragging { transition:none; }
+.movie-detail.is-switching { opacity:.92; }
 .movie-detail--pop { --accent: #efaa74; }.movie-detail--crayon { --accent: #ffd06c; }.movie-detail--coco { --accent: #df9e72; }
-.detail-backdrop { position: absolute; inset: 0 0 auto; height: 66%; background-size: cover; background-position: center 24%; opacity: calc(1 - var(--scroll) * .36); transform: scale(calc(1.04 + var(--scroll) * .035)) translateY(calc(var(--scroll) * -18px)); transition: opacity .12s linear, transform .12s linear; animation: backdrop-open .9s cubic-bezier(.16,1,.3,1) both; }
+.detail-backdrop { position: absolute; inset: 0 0 auto; height: 66%; background-size: cover; background-position: center 24%; opacity: calc(1 - var(--scroll) * .36); transform: scale(calc(1.04 + var(--scroll) * .035)) translateY(calc(var(--scroll) * -18px)); transition: opacity .12s linear, transform .12s linear; animation: backdrop-open .72s cubic-bezier(.18,.88,.2,1) both; }
 .movie-detail--pop .detail-backdrop { background-image: radial-gradient(circle at 60% 18%,#ffd47d 0 8%,transparent 9%),linear-gradient(150deg,#4bb5cd,#1c4e80 48%,#061425); }.movie-detail--crayon .detail-backdrop { background-image: radial-gradient(circle at 25% 20%,#ffde68 0 12%,transparent 13%),linear-gradient(155deg,#61c1de,#eca55c 51%,#8d2726); }.movie-detail--coco .detail-backdrop { background-image: radial-gradient(circle at 63% 19%,#ffda6b 0 11%,transparent 12%),linear-gradient(150deg,#3a61ad,#8b4074 56%,#e18349); }
 .detail-backdrop::after { content:''; position:absolute; inset:0; background: linear-gradient(180deg, transparent 0 54%, rgba(10,14,16,.12) 64%, rgba(10,14,16,.68) 82%, var(--screen) 100%); }
 .detail-topbar { position:absolute; z-index:5; top:25px; right:18px; left:18px; display:flex; justify-content:space-between; transform:translateY(calc(var(--scroll) * -8px)); }
 .detail-topbar button { display:grid; place-items:center; width:42px; height:42px; padding:0; color:#fff7ef; border:1px solid rgba(255,255,255,.38); border-radius:50%; background:rgba(15,18,19,.2); box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 8px 20px rgba(0,0,0,.16); backdrop-filter:blur(18px) saturate(1.4); }
 .detail-topbar button.active { color:var(--accent); border-color:color-mix(in srgb,var(--accent) 55%,transparent); }
+.detail-swipe-hint { position:absolute; z-index:5; top:31px; left:50%; display:flex; align-items:center; gap:6px; padding:6px 10px; color:rgba(255,247,239,.58); border:1px solid rgba(255,255,255,.16); border-radius:999px; background:rgba(13,16,18,.18); backdrop-filter:blur(14px); font-size:8px; font-weight:650; letter-spacing:.03em; transform:translateX(-50%); animation:swipe-hint-in .6s ease .55s both; pointer-events:none; }
+.detail-swipe-hint span { color:var(--accent); font-size:14px; line-height:8px; }
 .detail-scroll { position:absolute; inset:0; padding:0 20px 118px; overflow-y:auto; scrollbar-width:none; overscroll-behavior:contain; }.detail-scroll::-webkit-scrollbar{display:none}
 .detail-hero-copy { min-height:570px; display:flex; flex-direction:column; justify-content:end; padding:100px 2px 34px; animation: detail-copy-in .72s cubic-bezier(.16,1,.3,1) .2s both; }
 .detail-original { margin:0 0 8px; color:rgba(255,247,239,.62); font:11px Georgia,serif; letter-spacing:.07em; }.detail-hero-copy h1 { max-width:340px; margin:0; font:500 31px/1.16 Georgia,'Songti SC',serif; letter-spacing:-.04em; text-shadow:0 3px 18px rgba(0,0,0,.42); }
@@ -100,11 +197,12 @@ function setWatched(value) {
 .edit-dock{display:flex;align-items:center;gap:7px;width:84px;height:50px;padding:0 12px 0 18px;color:#fff5ec;border:1px solid rgba(255,255,255,.22);border-left:0;border-radius:0 19px 19px 0;background:rgba(23,26,27,.72);box-shadow:inset 0 1px 0 rgba(255,255,255,.22),8px 12px 24px rgba(0,0,0,.28);backdrop-filter:blur(20px) saturate(1.35);font-size:11px;font-weight:700}.edit-dock svg{color:var(--accent)}
 .watch-switch{position:relative;display:grid;grid-template-columns:repeat(2,1fr);width:196px;height:50px;padding:4px;border:1px solid rgba(255,255,255,.2);border-radius:19px;background:rgba(23,26,27,.72);box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 12px 25px rgba(0,0,0,.28);backdrop-filter:blur(20px) saturate(1.35);pointer-events:auto}.switch-thumb{position:absolute;z-index:0;top:4px;bottom:4px;left:4px;width:calc(50% - 4px);border:1px solid rgba(255,255,255,.18);border-radius:15px;background:linear-gradient(145deg,rgba(255,255,255,.17),rgba(255,255,255,.06));box-shadow:inset 0 1px 0 rgba(255,255,255,.24),0 5px 13px rgba(0,0,0,.22);transition:transform .48s cubic-bezier(.16,1,.3,1),background .3s}.watch-switch.watched .switch-thumb{transform:translateX(100%);background:linear-gradient(145deg,color-mix(in srgb,var(--accent) 60%,rgba(255,255,255,.12)),color-mix(in srgb,var(--accent) 24%,rgba(255,255,255,.04)))}.watch-switch button{position:relative;z-index:1;display:flex;align-items:center;justify-content:center;gap:4px;padding:0;color:rgba(255,255,255,.46);border:0;background:transparent;font-size:10px;font-weight:650}.watch-switch button.selected{color:#fff8ef}
 @keyframes detail-unfold {
-  0% { opacity:.35; clip-path:inset(20% 14% 54% 14% round 24px); transform:translateY(-38px) scale(.92); }
-  42% { opacity:1; clip-path:inset(5% 5% 32% 5% round 18px); transform:translateY(-8px) scale(.985); }
+  0% { opacity:.58; clip-path:inset(15% 11% 48% 11% round 24px); transform:translateY(-28px) scale(.95); }
+  48% { opacity:1; clip-path:inset(3% 3% 24% 3% round 15px); transform:translateY(-4px) scale(.992); }
   100% { opacity:1; clip-path:inset(0 round 0); transform:translateY(0) scale(1); }
 }
-@keyframes backdrop-open { from { background-position:center 38%; transform:scale(1.18) translateY(-24px); filter:saturate(1.16); } to { background-position:center 24%; transform:scale(calc(1.04 + var(--scroll) * .035)) translateY(calc(var(--scroll) * -18px)); filter:saturate(1); } }
+@keyframes backdrop-open { from { background-position:center 34%; transform:scale(1.13) translateY(-16px); filter:saturate(1.1); } to { background-position:center 24%; transform:scale(calc(1.04 + var(--scroll) * .035)) translateY(calc(var(--scroll) * -18px)); filter:saturate(1); } }
 @keyframes detail-copy-in { from { opacity:0; transform:translateY(-24px); } to { opacity:1; transform:translateY(0); } }
+@keyframes swipe-hint-in { from { opacity:0; transform:translateX(-50%) translateY(-5px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
 @media(max-height:760px){.detail-hero-copy{min-height:510px}}@media(prefers-reduced-motion:reduce){.movie-detail,.detail-backdrop,.detail-hero-copy{animation:none}.detail-backdrop,.switch-thumb{transition:none}}
 </style>

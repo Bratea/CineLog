@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { Check, ChevronRight, Search, SlidersHorizontal, Star } from 'lucide-vue-next'
+import { Check, ChevronRight, Circle, Search, Star } from 'lucide-vue-next'
 import cinematicAnimeCollage from '../assets/cinematic-anime-collage.png'
 
 const props = defineProps({
@@ -11,26 +11,19 @@ const props = defineProps({
 
 const emit = defineEmits(['home', 'open-detail'])
 const query = ref('')
-const status = ref('all')
-const sortBy = ref('rating')
+const status = ref('watched')
 
 const filteredMovies = computed(() => {
   const keyword = query.value.trim().toLocaleLowerCase('zh-CN')
   const results = props.movies.filter((movie) => {
     const matchesQuery = !keyword || `${movie.title} ${movie.originalTitle} ${movie.meta}`.toLocaleLowerCase('zh-CN').includes(keyword)
-    const matchesStatus = status.value === 'all' || (status.value === 'watched' ? movie.watched : !movie.watched)
+    const matchesStatus = status.value === 'watched' ? movie.watched : !movie.watched
     return matchesQuery && matchesStatus
   })
-
-  return [...results].sort((a, b) => {
-    if (sortBy.value === 'title') return a.title.localeCompare(b.title, 'zh-CN')
-    if (sortBy.value === 'year') return Number(b.year) - Number(a.year)
-    return (b.rating ?? -1) - (a.rating ?? -1)
-  })
+  return results
 })
 
 const counts = computed(() => ({
-  all: props.movies.length,
   watched: props.movies.filter((movie) => movie.watched).length,
   unwatched: props.movies.filter((movie) => !movie.watched).length,
 }))
@@ -44,36 +37,26 @@ function posterStyle(movie) {
   <section class="library-page" aria-label="电影列表页面">
     <header class="library-header">
       <div>
-        <p>我的片库</p>
-        <h1>全部电影</h1>
+        <p>我的观影</p>
+        <h1>观影总结</h1>
       </div>
-      <div class="library-total"><strong>{{ movies.length }}</strong><span>部收藏</span></div>
+      <div class="library-total"><strong>{{ movies.length }}</strong><span>部记录</span></div>
     </header>
 
     <label class="search-box">
       <Search :size="18" stroke-width="2.2" />
-      <input v-model="query" type="search" placeholder="搜索电影、类型或英文名" aria-label="搜索电影" />
+      <input v-model="query" type="search" placeholder="搜索观影记录" aria-label="搜索观影记录" />
       <kbd v-if="!query">⌘ K</kbd>
     </label>
 
-    <div class="library-tools">
-      <div class="status-tabs" role="group" aria-label="观看状态">
-        <button v-for="item in [{ value: 'all', label: '全部' }, { value: 'watched', label: '看过' }, { value: 'unwatched', label: '想看' }]" :key="item.value" :class="{ selected: status === item.value }" @click="status = item.value">
-          {{ item.label }}<span>{{ counts[item.value] }}</span>
+    <div class="status-tabs" role="group" aria-label="观看状态">
+        <button v-for="item in [{ value: 'watched', label: '已观看' }, { value: 'unwatched', label: '未观看' }]" :key="item.value" :class="{ selected: status === item.value }" @click="status = item.value">
+          <strong>{{ counts[item.value] }}</strong><span>{{ item.label }}</span>
         </button>
-      </div>
-      <label class="sort-control" aria-label="排序方式">
-        <SlidersHorizontal :size="14" />
-        <select v-model="sortBy">
-          <option value="rating">评分</option>
-          <option value="title">片名</option>
-          <option value="year">年份</option>
-        </select>
-      </label>
     </div>
 
     <div class="result-heading">
-      <span>{{ query ? `“${query}”的结果` : '收藏影片' }}</span>
+      <span>{{ query ? `“${query}”的结果` : status === 'watched' ? '已观看记录' : '未观看记录' }}</span>
       <small>{{ filteredMovies.length }} 部</small>
     </div>
 
@@ -87,7 +70,11 @@ function posterStyle(movie) {
           <h2>{{ movie.title }}</h2>
           <div class="library-meta">
             <span class="score" :class="{ muted: movie.rating === null }"><Star :size="12" :fill="movie.rating === null ? 'none' : 'currentColor'" />{{ movie.rating ?? '暂无评分' }}</span>
-            <span class="watched" :class="{ pending: !movie.watched }"><Check :size="11" stroke-width="3" />{{ movie.watched ? '已观看' : '想看' }}</span>
+            <span class="watched" :class="{ pending: !movie.watched }">
+              <Check v-if="movie.watched" :size="11" stroke-width="3" />
+              <Circle v-else :size="11" stroke-width="2.5" />
+              {{ movie.watched ? '已观看' : '未观看' }}
+            </span>
           </div>
         </div>
         <button class="row-action" :aria-label="`查看${movie.title}详情`" @click.stop="emit('open-detail', movie)"><ChevronRight :size="17" /></button>
@@ -120,19 +107,17 @@ function posterStyle(movie) {
 .search-box input { min-width: 0; flex: 1; padding: 0; color: #1b1c1f; border: 0; outline: 0; background: transparent; font: inherit; font-size: 12px; }
 .search-box input::placeholder { color: #a1a2a7; }
 .search-box kbd { padding: 3px 6px; color: #8e8f94; border: 1px solid #dedee1; border-radius: 6px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.04); font-family: inherit; font-size: 8px; }
-.library-tools { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin-top: 13px; }
-.status-tabs { display: flex; min-width: 0; gap: 4px; }
-.status-tabs button { display: inline-flex; align-items: center; gap: 4px; height: 31px; padding: 0 10px; color: #737479; border: 0; border-radius: 10px; background: transparent; font-size: 10px; font-weight: 750; transition: color .2s ease, background .25s ease, transform .2s ease; }
-.status-tabs button span { color: #a3a4a8; font-size: 8px; }
-.status-tabs button.selected { color: #fff; background: #1c1d20; box-shadow: 0 7px 14px rgba(18,19,22,.15); }
-.status-tabs button.selected span { color: #b8b9bc; }
+.status-tabs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; margin-top: 13px; }
+.status-tabs button { display: flex; align-items: center; justify-content: space-between; height: 52px; padding: 0 15px; color: #74757a; border: 1px solid #e7e7e9; border-radius: 15px; background: #fff; transition: color .2s ease, background .25s ease, transform .2s ease, box-shadow .25s ease; }
+.status-tabs button strong { color: #202125; font-size: 20px; letter-spacing: -.05em; }
+.status-tabs button span { font-size: 10px; font-weight: 750; }
+.status-tabs button.selected { color: #d6d7da; border-color: #1c1d20; background: #1c1d20; box-shadow: 0 8px 17px rgba(18,19,22,.16); }
+.status-tabs button.selected strong { color: #fff; }
 .status-tabs button:active { transform: scale(.94); }
-.sort-control { display: flex; align-items: center; gap: 4px; height: 31px; padding: 0 8px; color: #77787d; border: 1px solid #e6e6e8; border-radius: 10px; background: #fff; }
-.sort-control select { width: 43px; padding: 0; color: #55565b; border: 0; outline: 0; background: transparent; font: inherit; font-size: 9px; font-weight: 700; }
-.result-heading { display: flex; align-items: center; justify-content: space-between; margin: 20px 2px 9px; }
+.result-heading { display: flex; align-items: center; justify-content: space-between; margin: 17px 2px 9px; }
 .result-heading span { color: #232428; font-size: 12px; font-weight: 800; }
 .result-heading small { color: #9a9ba0; font-size: 9px; }
-.library-list { display: grid; gap: 8px; max-height: calc(100% - 205px); padding: 0 1px 10px; overflow-y: auto; scrollbar-width: none; }
+.library-list { display: grid; gap: 8px; max-height: calc(100% - 226px); padding: 0 1px 10px; overflow-y: auto; scrollbar-width: none; }
 .library-list::-webkit-scrollbar { display: none; }
 .library-row { display: grid; grid-template-columns: 58px minmax(0, 1fr) 31px; align-items: center; gap: 11px; min-height: 76px; padding: 8px 9px; border: 1px solid #ececef; border-radius: 19px; outline: 0; background: rgba(255,255,255,.94); box-shadow: 0 5px 13px rgba(18,19,22,.035); cursor: pointer; transition: transform .3s cubic-bezier(.16,1,.3,1), box-shadow .3s ease, border-color .2s ease; animation: row-rise .55s cubic-bezier(.16,1,.3,1) both; }
 .library-row:hover, .library-row:focus-visible { border-color: #dadade; transform: translateY(-2px); box-shadow: 0 11px 22px rgba(18,19,22,.08); }
