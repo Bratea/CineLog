@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { Check, ChevronLeft, ChevronRight, Search, Star } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, Search, SlidersHorizontal, Star, X } from 'lucide-vue-next'
 import MovieCarousel from './components/MovieCarousel.vue'
 import MovieList from './components/MovieList.vue'
 import MovieDetail from './components/MovieDetail.vue'
@@ -20,16 +20,26 @@ const username = ref(localStorage.getItem('movie-username') || '通通')
 const activeWatchStat = ref('watched')
 const viewMode = ref('cards')
 const statPeriod = ref(localStorage.getItem('movie-stat-period') || 'year')
+const homeDisplayLimit = ref(Number(localStorage.getItem('movie-home-limit')) === 10 ? 10 : 5)
 const selectedYear = ref('2026')
 const selectedMovie = ref(null)
 const detailOrigin = ref('home')
 const detailEntry = ref('home')
 const transitionDirection = ref('forward')
 const libraryQuery = ref('')
-const libraryStatus = ref('watched')
+const libraryYear = ref('all')
+const libraryGenre = ref('all')
+const categoryOpen = ref(false)
 const markingWatched = ref([])
+const armedWatched = ref(null)
 const posterFlight = ref(null)
 const phoneShell = ref(null)
+const surfaceDragStart = ref(null)
+const surfaceDragX = ref(0)
+const surfaceDragging = ref(false)
+
+let watchConfirmTimer
+let surfaceSettleTimer
 
 const watchedCount = computed(() => movieRecords.value.filter((movie) => movie.watched).length)
 const unwatchedCount = computed(() => movieRecords.value.length - watchedCount.value)
@@ -41,19 +51,29 @@ const filteredMovies = computed(() => movieRecords.value.filter((movie) => {
 }))
 const periodLabel = computed(() => ({ year: `${selectedYear.value} 年`, month: '本月', week: '本周', day: '今天' })[statPeriod.value])
 const watchedSubtitle = computed(() => `按${({ year: '年', month: '月', week: '周', day: '日' })[statPeriod.value]}整理 · 共 ${filteredMovies.value.length} 部`)
+const displayedMovies = computed(() => filteredMovies.value.slice(0, homeDisplayLimit.value))
 const surfaceTransitionName = computed(() => transitionDirection.value === 'forward' ? 'surface-forward' : 'surface-back')
-const libraryCounts = computed(() => ({ watched: watchedCount.value, unwatched: unwatchedCount.value }))
+const surfacePage = computed(() => currentPage.value === 'detail' ? detailOrigin.value : currentPage.value)
+const libraryYears = computed(() => [...new Set(movieRecords.value.map((movie) => movie.year))].sort().reverse())
+const libraryGenres = computed(() => [...new Set(movieRecords.value.flatMap((movie) => movie.meta.split('·').map((genre) => genre.trim())))].filter(Boolean).slice(0, 8))
+const activeCategoryLabel = computed(() => {
+  if (libraryGenre.value !== 'all') return libraryGenre.value
+  if (libraryYear.value !== 'all') return `${libraryYear.value} 年`
+  return '全部电影'
+})
 const libraryMovies = computed(() => {
   const keyword = libraryQuery.value.trim().toLocaleLowerCase('zh-CN')
   return movieRecords.value.filter((movie) => {
-    const matchesStatus = libraryStatus.value === 'watched' ? movie.watched : !movie.watched
     const matchesQuery = !keyword || `${movie.title} ${movie.originalTitle} ${movie.meta}`.toLocaleLowerCase('zh-CN').includes(keyword)
-    return matchesStatus && matchesQuery
+    const matchesYear = libraryYear.value === 'all' || movie.year === libraryYear.value
+    const matchesGenre = libraryGenre.value === 'all' || movie.meta.split('·').map((genre) => genre.trim()).includes(libraryGenre.value)
+    return matchesQuery && matchesYear && matchesGenre
   })
 })
 
 watch(username, (value) => localStorage.setItem('movie-username', value || '用户'))
 watch(statPeriod, (value) => localStorage.setItem('movie-stat-period', value))
+watch(homeDisplayLimit, (value) => localStorage.setItem('movie-home-limit', String(value)))
 
 function setWatchStat(value) {
   activeWatchStat.value = value
@@ -125,6 +145,40 @@ function showLibrary() {
   currentPage.value = 'library'
 }
 
+function surfacePointerDown(event) {
+  if (!['home', 'library'].includes(currentPage.value) || event.target.closest('button, input, label, .deck, .library-row, .movie-list')) return
+  surfaceDragStart.value = { x: event.clientX, y: event.clientY }
+  surfaceDragging.value = true
+  event.currentTarget.setPointerCapture?.(event.pointerId)
+}
+
+function surfacePointerMove(event) {
+  if (!surfaceDragStart.value) return
+  const deltaX = event.clientX - surfaceDragStart.value.x
+  const deltaY = event.clientY - surfaceDragStart.value.y
+  if (Math.abs(deltaX) < 8 || Math.abs(deltaX) < Math.abs(deltaY) * 1.15) return
+  const allowed = currentPage.value === 'home' ? Math.min(0, deltaX) : Math.max(0, deltaX)
+  surfaceDragX.value = Math.max(-150, Math.min(150, allowed * .82))
+}
+
+function surfacePointerUp() {
+  if (!surfaceDragStart.value) return
+  const shouldMove = Math.abs(surfaceDragX.value) > 58
+  const target = currentPage.value === 'home' ? 'library' : 'home'
+  surfaceDragStart.value = null
+  surfaceDragging.value = false
+  if (!shouldMove) {
+    surfaceDragX.value = 0
+    return
+  }
+  surfaceDragX.value = target === 'library' ? -176 : 176
+  window.clearTimeout(surfaceSettleTimer)
+  surfaceSettleTimer = window.setTimeout(() => {
+    target === 'library' ? showLibrary() : showHome()
+    surfaceDragX.value = 0
+  }, 120)
+}
+
 function libraryPosterStyle(movie) {
   const path = movie.backdropUrl || movie.posterUrl || movie.backdrop_path || movie.poster_path
   if (path) {
@@ -134,8 +188,19 @@ function libraryPosterStyle(movie) {
   return movie.poster === 'demon' ? { backgroundImage: `url(${cinematicAnimeCollage})` } : undefined
 }
 
+function movieTone(movie) {
+  return ({ pop: '#5c9fb3', demon: '#b66632', crayon: '#d0ae64', coco: '#8e659d' })[movie.poster] || '#7c8796'
+}
+
 function markLibraryWatched(movie) {
   if (movie.watched || markingWatched.value.includes(movie.id)) return
+  if (armedWatched.value !== movie.id) {
+    armedWatched.value = movie.id
+    window.clearTimeout(watchConfirmTimer)
+    watchConfirmTimer = window.setTimeout(() => { armedWatched.value = null }, 2400)
+    return
+  }
+  armedWatched.value = null
   markingWatched.value = [...markingWatched.value, movie.id]
   window.setTimeout(() => {
     movie.watched = true
@@ -162,7 +227,7 @@ function navigateDetail(direction) {
       <div class="ambient-orb ambient-orb--two" aria-hidden="true"></div>
 
       <Transition :name="surfaceTransitionName" :duration="{ enter: 720, leave: 650 }">
-        <section v-if="currentPage === 'home'" key="home" class="surface-view home-surface">
+        <section v-if="surfacePage === 'home'" key="home" class="surface-view home-surface" :class="{ 'is-surface-dragging': surfaceDragging }" :style="{ '--surface-drag': `${surfaceDragX}px` }" @pointerdown="surfacePointerDown" @pointermove="surfacePointerMove" @pointerup="surfacePointerUp" @pointercancel="surfacePointerUp">
         <header class="topbar surface-piece" style="--piece-order: 0">
           <div class="welcome-row">
             <div>
@@ -194,26 +259,26 @@ function navigateDetail(direction) {
           <div class="stage-heading surface-piece" style="--piece-order: 1">
             <div>
               <h2 id="recent-heading">{{ activeWatchStat === 'watched' ? '已观看' : '未观看' }}</h2>
-              <p>{{ activeWatchStat === 'watched' ? watchedSubtitle : `还有 ${unwatchedCount} 部等待观看` }}</p>
+              <p v-if="activeWatchStat === 'watched'">{{ watchedSubtitle }}</p>
+              <p v-else>还有 <strong class="unwatched-number">{{ unwatchedCount }}</strong> 部等待观看</p>
             </div>
             <select v-if="activeWatchStat === 'watched' && statPeriod === 'year'" v-model="selectedYear" class="year-select" aria-label="选择年份">
               <option v-for="year in watchedYears" :key="year" :value="year">{{ year }} 年</option>
             </select>
             <button v-else-if="activeWatchStat === 'watched'" class="period-badge" @click="currentPage = 'settings'">{{ periodLabel }}</button>
-            <span v-else>{{ filteredMovies.length }} 部</span>
           </div>
 
           <Transition name="drop-swap" mode="out-in" class="surface-piece" style="--piece-order: 2">
-            <MovieCarousel v-if="viewMode === 'cards'" :key="`cards-${activeWatchStat}-${statPeriod}-${selectedYear}`" :movies="filteredMovies" @mark-watched="markWatched" @open-detail="openDetail" />
-            <MovieList v-else :key="`list-${activeWatchStat}-${statPeriod}-${selectedYear}`" :movies="filteredMovies" @open-detail="openHomeListDetail" />
+            <MovieCarousel v-if="viewMode === 'cards'" :key="`cards-${activeWatchStat}-${statPeriod}-${selectedYear}`" :movies="displayedMovies" @mark-watched="markWatched" @open-detail="openDetail" />
+            <MovieList v-else :key="`list-${activeWatchStat}-${statPeriod}-${selectedYear}`" :movies="displayedMovies" @open-detail="openHomeListDetail" @mark-watched="markWatched" />
           </Transition>
         </section>
         </section>
 
-        <section v-else-if="currentPage === 'library'" key="library" class="surface-view library-surface" aria-label="电影列表页面">
+        <section v-else-if="surfacePage === 'library'" key="library" class="surface-view library-surface" :class="{ 'is-surface-dragging': surfaceDragging }" :style="{ '--surface-drag': `${surfaceDragX}px` }" aria-label="电影列表页面" @pointerdown="surfacePointerDown" @pointermove="surfacePointerMove" @pointerup="surfacePointerUp" @pointercancel="surfacePointerUp">
           <header class="library-header surface-piece" style="--piece-order: 0">
-            <div><p>我的观影</p><h1>观影总结</h1></div>
-            <div class="library-total"><strong>{{ movieRecords.length }}</strong><span>部记录</span></div>
+            <div><p>我的片库</p><h1>全部电影</h1></div>
+            <button class="category-button" aria-label="打开电影分类" @click="categoryOpen = true"><SlidersHorizontal :size="17" /><span>分类</span></button>
           </header>
 
           <label class="search-box surface-piece" style="--piece-order: 1">
@@ -222,31 +287,24 @@ function navigateDetail(direction) {
             <kbd v-if="!libraryQuery">⌘ K</kbd>
           </label>
 
-          <div class="status-tabs surface-piece" style="--piece-order: 2" role="group" aria-label="观看状态">
-            <button v-for="item in [{ value: 'watched', label: '已观看' }, { value: 'unwatched', label: '未观看' }]" :key="item.value" :class="{ selected: libraryStatus === item.value }" @click="libraryStatus = item.value">
-              <strong>{{ libraryCounts[item.value] }}</strong><span>{{ item.label }}</span>
-            </button>
+          <div class="result-heading surface-piece" style="--piece-order: 2">
+            <span>{{ libraryQuery ? `“${libraryQuery}”的结果` : activeCategoryLabel }}</span>
           </div>
 
-          <div class="result-heading surface-piece" style="--piece-order: 3">
-            <span>{{ libraryQuery ? `“${libraryQuery}”的结果` : libraryStatus === 'watched' ? '已观看记录' : '未观看记录' }}</span>
-            <small>{{ libraryMovies.length }} 部</small>
-          </div>
-
-          <div class="library-list surface-piece" style="--piece-order: 4" aria-live="polite">
-            <article v-for="(movie, index) in libraryMovies" :key="movie.id" class="library-row" :style="{ '--row-order': index }" role="button" tabindex="0" @click="openDetailFromPoster(movie, $event.currentTarget)" @keydown.enter.prevent="openDetailFromPoster(movie, $event.currentTarget)">
+          <div class="library-list surface-piece" style="--piece-order: 3" aria-live="polite">
+            <article v-for="(movie, index) in libraryMovies" :key="movie.id" class="library-row" :style="{ '--row-order': index, '--row-tint': movieTone(movie) }" role="button" tabindex="0" @click="openDetailFromPoster(movie, $event.currentTarget)" @keydown.enter.prevent="openDetailFromPoster(movie, $event.currentTarget)">
               <div class="library-poster" :class="`library-poster--${movie.poster}`" :style="libraryPosterStyle(movie)"><span>{{ movie.posterText }}</span></div>
               <div class="library-copy">
                 <p>{{ movie.meta }} · {{ movie.year }}</p>
                 <h2>{{ movie.title }}</h2>
                 <div class="library-meta">
                   <span class="score" :class="{ muted: movie.rating === null }"><Star :size="12" :fill="movie.rating === null ? 'none' : 'currentColor'" />{{ movie.rating ?? '暂无评分' }}</span>
-                  <span class="watched" :class="{ pending: !movie.watched }"><Check :size="11" stroke-width="3" />{{ movie.watched ? '已观看' : '未观看' }}</span>
                 </div>
               </div>
               <button v-if="movie.watched" class="row-action" :aria-label="`查看${movie.title}详情`" @click.stop="openDetailFromPoster(movie, $event.currentTarget.closest('.library-row'))"><ChevronRight :size="17" /></button>
-              <button v-else class="watch-ring" :class="{ completing: markingWatched.includes(movie.id) }" :aria-label="`将${movie.title}标记为已观看`" @click.stop="markLibraryWatched(movie)">
+              <button v-else class="watch-ring" :class="{ armed: armedWatched === movie.id, completing: markingWatched.includes(movie.id) }" :aria-label="armedWatched === movie.id ? `再次确认将${movie.title}标记为已观看` : `将${movie.title}标记为已观看`" @click.stop="markLibraryWatched(movie)">
                 <svg viewBox="0 0 36 36" aria-hidden="true"><circle class="ring-track" cx="18" cy="18" r="14"/><circle class="ring-progress" cx="18" cy="18" r="14"/><path class="ring-check" d="m11.5 18.2 4.2 4.1 8.8-9"/></svg>
+                <span v-if="armedWatched === movie.id" class="confirm-dot">!</span>
               </button>
             </article>
 
@@ -262,6 +320,15 @@ function navigateDetail(direction) {
           <button :class="{ selected: activeTab === 'list' }" aria-label="电影列表" @click="showLibrary"><img :src="pixelMovieList" alt="" /></button>
         </div>
       </nav>
+
+      <div v-if="categoryOpen" class="category-backdrop" @click.self="categoryOpen = false">
+        <aside class="category-drawer" aria-label="电影分类抽屉">
+          <header><div><small>筛选片库</small><h2>日期与类型</h2></div><button aria-label="关闭分类" @click="categoryOpen = false"><X :size="18" /></button></header>
+          <section><h3>上映日期</h3><div class="category-options"><button :class="{ selected: libraryYear === 'all' }" @click="libraryYear = 'all'">全部日期</button><button v-for="year in libraryYears" :key="year" :class="{ selected: libraryYear === year }" @click="libraryYear = year">{{ year }}</button></div></section>
+          <section><h3>主要类型</h3><div class="category-options"><button :class="{ selected: libraryGenre === 'all' }" @click="libraryGenre = 'all'">全部类型</button><button v-for="genre in libraryGenres" :key="genre" :class="{ selected: libraryGenre === genre }" @click="libraryGenre = genre">{{ genre }}</button></div></section>
+          <button class="category-done" @click="categoryOpen = false">完成筛选</button>
+        </aside>
+      </div>
 
       <div v-if="addOpen && (currentPage === 'home' || currentPage === 'library')" class="sheet-backdrop" @click.self="addOpen = false">
         <div class="add-sheet" role="dialog" aria-modal="true" aria-label="添加电影记录">
@@ -300,6 +367,14 @@ function navigateDetail(direction) {
               {{ option.label }}
             </button>
           </div>
+        </div>
+
+        <div class="settings-group">
+          <label>首页最多展示</label>
+          <div class="period-options home-limit-options" role="group" aria-label="首页电影展示数量">
+            <button v-for="limit in [5, 10]" :key="limit" :class="{ selected: homeDisplayLimit === limit }" @click="homeDisplayLimit = limit">{{ limit }} 部</button>
+          </div>
+          <small>默认展示 5 部，最多可以设置为 10 部。</small>
         </div>
 
         <button class="save-settings" @click="currentPage = 'home'">保存并返回</button>

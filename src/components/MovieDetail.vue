@@ -17,8 +17,10 @@ const isSwipeDragging = ref(false)
 const swipeTransition = ref(true)
 const isSwitching = ref(false)
 const switchDirection = ref(0)
+const isReturning = ref(false)
 
 let switchTimer
+let backTimer
 
 const posterStyle = computed(() => {
   const path = props.movie.backdropUrl || props.movie.posterUrl || props.movie.backdrop_path || props.movie.poster_path
@@ -44,7 +46,7 @@ function setWatched(value) {
 }
 
 function detailPointerDown(event) {
-  if (isSwitching.value || event.target.closest('button, input, textarea, [role="group"]')) return
+  if (isSwitching.value || isReturning.value || event.target.closest('button, input, textarea, [role="group"]')) return
   swipeStart.value = { x: event.clientX, y: event.clientY }
   swipeAxis.value = null
   swipeTransition.value = false
@@ -96,6 +98,12 @@ function switchMovie(direction) {
   switchTimer = window.setTimeout(() => emit('navigate', direction), 270)
 }
 
+function requestBack() {
+  if (isReturning.value) return
+  isReturning.value = true
+  backTimer = window.setTimeout(() => emit('back'), 460)
+}
+
 watch(() => props.movie.id, async () => {
   window.clearTimeout(switchTimer)
   scrollProgress.value = 0
@@ -109,13 +117,16 @@ watch(() => props.movie.id, async () => {
   })
 })
 
-onBeforeUnmount(() => window.clearTimeout(switchTimer))
+onBeforeUnmount(() => {
+  window.clearTimeout(switchTimer)
+  window.clearTimeout(backTimer)
+})
 </script>
 
 <template>
   <article
     class="movie-detail"
-    :class="[`movie-detail--${movie.poster}`, `entry-${entryMode}`, { 'is-swipe-dragging': isSwipeDragging, 'has-swipe-transition': swipeTransition, 'is-switching': isSwitching }]"
+    :class="[`movie-detail--${movie.poster}`, `entry-${entryMode}`, { 'is-swipe-dragging': isSwipeDragging, 'has-swipe-transition': swipeTransition, 'is-switching': isSwitching, 'is-returning': isReturning }]"
     :style="detailMotionStyle"
     @pointerdown="detailPointerDown"
     @pointermove="detailPointerMove"
@@ -124,7 +135,7 @@ onBeforeUnmount(() => window.clearTimeout(switchTimer))
   >
     <div class="detail-backdrop" :style="posterStyle"></div>
     <header class="detail-topbar">
-      <button aria-label="返回" @click="emit('back')"><ArrowLeft :size="21" /></button>
+      <button aria-label="返回" @click="requestBack"><ArrowLeft :size="21" /></button>
       <button :class="{ active: liked }" aria-label="收藏" @click="liked = !liked"><Heart :size="20" :fill="liked ? 'currentColor' : 'none'" /></button>
     </header>
 
@@ -177,6 +188,8 @@ onBeforeUnmount(() => window.clearTimeout(switchTimer))
 .movie-detail.entry-list { animation:detail-list-in .58s cubic-bezier(.18,.88,.2,1) both; }
 .movie-detail.is-swipe-dragging { transition:none; }
 .movie-detail.is-switching { opacity:.92; }
+.movie-detail.is-returning { pointer-events:none; animation:detail-return-home .46s cubic-bezier(.55,.04,.82,.32) both !important; }
+.movie-detail.entry-list.is-returning { animation-name:detail-return-list !important; }
 .movie-detail--pop { --accent: #efaa74; }.movie-detail--crayon { --accent: #ffd06c; }.movie-detail--coco { --accent: #df9e72; }
 .detail-backdrop { position: absolute; inset: 0 0 auto; height: 66%; background-size: cover; background-position: center 24%; opacity: calc(1 - var(--scroll) * .36); transform: scale(calc(1.04 + var(--scroll) * .035)) translateY(calc(var(--scroll) * -18px)); transition: opacity .12s linear, transform .12s linear; animation: backdrop-open .72s cubic-bezier(.18,.88,.2,1) both; }
 .movie-detail--pop .detail-backdrop { background-image: radial-gradient(circle at 60% 18%,#ffd47d 0 8%,transparent 9%),linear-gradient(150deg,#4bb5cd,#1c4e80 48%,#061425); }.movie-detail--crayon .detail-backdrop { background-image: radial-gradient(circle at 25% 20%,#ffde68 0 12%,transparent 13%),linear-gradient(155deg,#61c1de,#eca55c 51%,#8d2726); }.movie-detail--coco .detail-backdrop { background-image: radial-gradient(circle at 63% 19%,#ffda6b 0 11%,transparent 12%),linear-gradient(150deg,#3a61ad,#8b4074 56%,#e18349); }
@@ -209,5 +222,7 @@ onBeforeUnmount(() => window.clearTimeout(switchTimer))
 @keyframes detail-copy-in { from { opacity:0; transform:translateY(-24px); } to { opacity:1; transform:translateY(0); } }
 @keyframes swipe-hint-in { from { opacity:0; transform:translateX(-50%) translateY(-5px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
 @keyframes detail-list-in { from { opacity:.35; transform:scale(1.018); } to { opacity:1; transform:scale(1); } }
+@keyframes detail-return-home { 0% { opacity:1; clip-path:inset(0 round 0); transform:scale(1); } 58% { opacity:1; clip-path:inset(10% 9% 35% 9% round 24px); transform:translateY(18px) scale(.96); } 100% { opacity:0; clip-path:inset(20% 15% 47% 15% round 28px); transform:translateY(42px) scale(.88); } }
+@keyframes detail-return-list { 0% { opacity:1; clip-path:inset(0 round 0); transform:scale(1); } 58% { opacity:1; clip-path:inset(18% 36% 46% 8% round 20px); transform:translate(-26px,24px) scale(.94); } 100% { opacity:0; clip-path:inset(38% 74% 50% 6% round 14px); transform:translate(-54px,38px) scale(.82); } }
 @media(max-height:760px){.detail-hero-copy{min-height:510px}}@media(prefers-reduced-motion:reduce){.movie-detail,.detail-backdrop,.detail-hero-copy{animation:none}.detail-backdrop,.switch-thumb{transition:none}}
 </style>

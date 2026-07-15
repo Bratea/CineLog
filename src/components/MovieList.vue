@@ -1,28 +1,64 @@
 <script setup>
-import { Check, ChevronRight, Star } from 'lucide-vue-next'
+import { onBeforeUnmount, ref } from 'vue'
+import { ChevronRight, Star } from 'lucide-vue-next'
 import cinematicAnimeCollage from '../assets/cinematic-anime-collage.png'
 
 defineProps({ movies: { type: Array, required: true } })
-const emit = defineEmits(['open-detail'])
+const emit = defineEmits(['open-detail', 'mark-watched'])
+const armedId = ref(null)
+const completingId = ref(null)
+let confirmTimer
 
 function openRow(movie, event) {
   emit('open-detail', { movie, source: event.currentTarget })
 }
+
+function posterStyle(movie) {
+  const path = movie.backdropUrl || movie.posterUrl || movie.backdrop_path || movie.poster_path
+  if (path) {
+    const src = path.startsWith('http') ? path : `https://image.tmdb.org/t/p/original${path}`
+    return { backgroundImage: `url(${src})` }
+  }
+  return movie.poster === 'demon' ? { backgroundImage: `url(${cinematicAnimeCollage})` } : {}
+}
+
+function movieTone(movie) {
+  return ({ pop: '#5c9fb3', demon: '#b66632', crayon: '#d0ae64', coco: '#8e659d' })[movie.poster] || '#7c8796'
+}
+
+function confirmWatched(movie) {
+  if (armedId.value !== movie.id) {
+    armedId.value = movie.id
+    window.clearTimeout(confirmTimer)
+    confirmTimer = window.setTimeout(() => { armedId.value = null }, 2400)
+    return
+  }
+  armedId.value = null
+  completingId.value = movie.id
+  window.setTimeout(() => {
+    emit('mark-watched', movie.id)
+    completingId.value = null
+  }, 920)
+}
+
+onBeforeUnmount(() => window.clearTimeout(confirmTimer))
 </script>
 
 <template>
   <div class="movie-list" aria-label="电影列表视图">
-    <article v-for="movie in movies" :key="movie.id" class="movie-list-item" role="button" tabindex="0" :aria-label="`查看${movie.title}详情`" @click="openRow(movie, $event)" @keydown.enter.prevent="openRow(movie, $event)">
-      <div class="movie-list-poster" :class="`movie-list-poster--${movie.poster}`" :style="movie.poster === 'demon' ? { backgroundImage: `url(${cinematicAnimeCollage})` } : {}"></div>
+    <article v-for="movie in movies" :key="movie.id" class="movie-list-item" :style="{ '--row-tint': movieTone(movie) }" role="button" tabindex="0" :aria-label="`查看${movie.title}详情`" @click="openRow(movie, $event)" @keydown.enter.prevent="openRow(movie, $event)">
+      <div class="movie-list-poster" :class="`movie-list-poster--${movie.poster}`" :style="posterStyle(movie)"></div>
       <div class="movie-list-copy">
         <p>{{ movie.meta }} · {{ movie.year }}</p>
         <h3>{{ movie.title }}</h3>
         <div>
           <span :class="{ unrated: movie.rating === null }"><Star :size="12" :fill="movie.rating === null ? 'none' : 'currentColor'" />{{ movie.rating ?? '未评分' }}</span>
-          <span :class="{ pending: !movie.watched }"><Check :size="10" />{{ movie.watched ? '已观看' : '未观看' }}</span>
         </div>
       </div>
-      <span class="movie-list-arrow" aria-hidden="true"><ChevronRight :size="18" /></span>
+      <span v-if="movie.watched" class="movie-list-arrow" aria-hidden="true"><ChevronRight :size="18" /></span>
+      <button v-else class="watch-ring" :class="{ armed: armedId === movie.id, completing: completingId === movie.id }" :aria-label="armedId === movie.id ? `再次确认将${movie.title}标记为已观看` : `将${movie.title}标记为已观看`" @click.stop="confirmWatched(movie)">
+        <svg viewBox="0 0 36 36" aria-hidden="true"><circle class="ring-track" cx="18" cy="18" r="14"/><circle class="ring-progress" cx="18" cy="18" r="14"/><path class="ring-check" d="m11.5 18.2 4.2 4.1 8.8-9"/></svg><span v-if="armedId === movie.id" class="confirm-dot">!</span>
+      </button>
     </article>
     <p v-if="!movies.length" class="movie-list-empty">这里还没有电影。</p>
   </div>
@@ -31,7 +67,7 @@ function openRow(movie, event) {
 <style lang="scss" scoped>
 .movie-list { display: grid; gap: 8px; max-height: 342px; padding: 0 22px 8px; overflow-y: auto; scrollbar-width: none; }
 .movie-list::-webkit-scrollbar { display: none; }
-.movie-list-item { display: grid; grid-template-columns: 58px 1fr 34px; align-items: center; gap: 11px; min-height: 74px; padding: 8px 10px; border: 1px solid #ececef; border-radius: 19px; outline:0; background: #fff; box-shadow: 0 4px 12px rgba(18,19,22,.035); cursor:pointer; transition: transform .42s cubic-bezier(.16,1,.3,1), box-shadow .35s ease; animation: row-in .58s cubic-bezier(.16,1,.3,1) both; }
+.movie-list-item { display: grid; grid-template-columns: 58px 1fr 34px; align-items: center; gap: 11px; min-height: 74px; padding: 8px 10px; border: 1px solid color-mix(in srgb,var(--row-tint) 18%,#e8e8eb); border-radius: 19px; outline:0; background:linear-gradient(105deg,color-mix(in srgb,var(--row-tint) 17%,rgba(255,255,255,.94)),rgba(255,255,255,.88) 58%,color-mix(in srgb,var(--row-tint) 8%,rgba(255,255,255,.9))); box-shadow:0 6px 16px color-mix(in srgb,var(--row-tint) 10%,transparent); backdrop-filter:blur(16px) saturate(1.15); cursor:pointer; transition: transform .42s cubic-bezier(.16,1,.3,1), box-shadow .35s ease; animation: row-in .58s cubic-bezier(.16,1,.3,1) both; }
 .movie-list-item:hover { transform: translateY(-1px) scale(1.012); box-shadow: 0 9px 19px rgba(18,19,22,.07); }
 .movie-list-poster { width: 58px; height: 58px; border-radius: 14px; background-size: cover; background-position: center; }
 .movie-list-poster--pop { background: radial-gradient(circle at 60% 20%, #ffcc74 0 9%, transparent 10%), linear-gradient(155deg, #4bb5cd, #1c4e80 50%, #061425); }

@@ -21,9 +21,11 @@ const swipeX = ref(0)
 const swipeMax = ref(0)
 const isSwiping = ref(false)
 const swipeSettled = ref(false)
+const swipeArmed = ref(false)
 const settlePulse = ref(false)
 
 let openTimer
+let swipeArmTimer
 
 let renderer
 let scene
@@ -135,6 +137,8 @@ function resetSwipe() {
   swipeMax.value = 0
   isSwiping.value = false
   swipeSettled.value = false
+  swipeArmed.value = false
+  window.clearTimeout(swipeArmTimer)
 }
 
 function watchSwipeDown(event) {
@@ -152,10 +156,25 @@ function watchSwipeMove(event) {
 
 function completeWatchSwipe() {
   if (!activeMovie.value || swipeSettled.value) return
+  if (!swipeArmed.value) {
+    armWatchSwipe()
+    return
+  }
+  swipeArmed.value = false
+  window.clearTimeout(swipeArmTimer)
   swipeX.value = swipeMax.value
   swipeSettled.value = true
   isSwiping.value = false
   window.setTimeout(() => emit('mark-watched', activeMovie.value.id), 1050)
+}
+
+function armWatchSwipe() {
+  swipeArmed.value = true
+  isSwiping.value = false
+  swipeX.value = swipeMax.value
+  window.setTimeout(() => { swipeX.value = 0 }, 180)
+  window.clearTimeout(swipeArmTimer)
+  swipeArmTimer = window.setTimeout(() => { swipeArmed.value = false }, 2600)
 }
 
 function watchSwipeUp() {
@@ -228,6 +247,7 @@ watch(() => props.movies, () => { activeIndex.value = 0; resetSwipe() })
 onMounted(setupThree)
 onBeforeUnmount(() => {
   window.clearTimeout(openTimer)
+  window.clearTimeout(swipeArmTimer)
   cancelAnimationFrame(frame)
   resizeObserver?.disconnect()
   material?.dispose()
@@ -270,13 +290,12 @@ onBeforeUnmount(() => {
           <div class="album-bottom">
             <div class="movie-status">
               <span class="rating" :class="{ unrated: movie.rating === null }"><Star :size="13" :fill="movie.rating === null ? 'none' : 'currentColor'" />{{ movie.rating ?? '未评分' }}</span>
-              <span class="watched" :class="{ pending: !movie.watched }"><Check :size="11" stroke-width="3" />{{ movie.watched ? '已观看' : '未观看' }}</span>
             </div>
             <div v-if="movie.watched" class="push-cta"><span>向上推动查看详情</span><i><ChevronUp :size="18" /></i></div>
             <div
               v-else
               class="watch-slider"
-              :class="{ swiping: isSwiping, settled: swipeSettled }"
+              :class="{ swiping: isSwiping, armed: swipeArmed, settled: swipeSettled }"
               :style="{ '--swipe-x': `${swipeX}px` }"
               role="slider"
               tabindex="0"
@@ -287,7 +306,7 @@ onBeforeUnmount(() => {
               @pointercancel.stop="watchSwipeUp"
               @keydown.right.prevent="completeWatchSwipe"
             >
-              <span>{{ swipeSettled ? '完成！' : '向右滑动设为已观看' }}</span>
+              <span>{{ swipeSettled ? '已加入观看记录' : swipeArmed ? '再次向右滑动确认' : '滑动完成观看' }}</span>
               <i class="watch-slider__handle">
                 <svg v-if="swipeSettled" class="watch-success-svg" viewBox="0 0 32 32" aria-hidden="true">
                   <circle cx="16" cy="16" r="12"></circle>
@@ -332,22 +351,18 @@ onBeforeUnmount(() => {
 .pull-detail-hint { position: absolute; z-index: 4; top: 10px; left: 50%; display: flex; align-items: center; gap: 4px; padding: 5px 9px; color: rgba(255,255,255,.8); border: 1px solid rgba(255,255,255,.22); border-radius: 999px; background: rgba(9,11,14,.26); backdrop-filter: blur(12px); font-size: 9px; font-weight: 650; transform: translateX(-50%) translateY(calc(var(--open-progress, 0) * -12px)); opacity: calc(.66 - var(--open-progress, 0) * .66); transition: opacity .2s ease, transform .2s ease; pointer-events: none; }
 .pull-detail-hint svg { animation: pull-hint 1.5s ease-in-out infinite; }
 .album-bottom { margin-top: 6px; font-size: 10px; font-weight: 700; }
-.movie-status { display: flex; align-items: center; gap: 12px; padding-left: 1px; }
-.rating, .watched { display: inline-flex; align-items: center; gap: 4px; }
+.movie-status { display: flex; align-items: center; padding-left: 1px; }
+.rating { display: inline-flex; align-items: center; gap: 4px; }
 .rating { color: #fff; }
 .rating svg { color: #ffd451; }
-.watched { color: rgba(255,255,255,.85); }
-.watched svg { box-sizing: content-box; padding: 2px; color: #131417; border-radius: 50%; background: #fff; }
 .rating.unrated { color: rgba(255,255,255,.64); }
-.watched.pending { color: #ffd86a; }
-.watched.pending svg { color: #191a1d; background: #ffd86a; }
 .push-cta { display:flex; align-items:center; justify-content:center; gap:6px; height:40px; margin-top:8px; color:rgba(255,255,255,.74); border:1px solid rgba(255,255,255,.12); border-radius:999px; background:rgba(24,25,27,.76); box-shadow:0 8px 16px rgba(0,0,0,.16); backdrop-filter:blur(14px); font-size:10px; font-weight:650; pointer-events:none; }
 .push-cta i { display:grid; place-items:center; width:25px; height:25px; color:#17181b; border-radius:50%; background:rgba(255,255,255,.9); font-style:normal; }
-.watch-slider { --swipe-x: 0px; position: relative; height: 40px; margin-top: 8px; overflow: hidden; color: rgba(255,255,255,.7); border: 1px solid rgba(255,255,255,.13); border-radius: 999px; background: rgba(24,25,27,.84); box-shadow: 0 8px 16px rgba(0,0,0,.18); touch-action: none; cursor: ew-resize; }
-.watch-slider::before { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: calc(var(--swipe-x) + 40px); background: rgba(104,212,156,.18); transition: width .38s cubic-bezier(.16,1,.3,1); }
+.watch-slider { --swipe-x: 0px; position: relative; height: 42px; margin-top: 8px; overflow: hidden; color: rgba(255,255,255,.68); border: 1px solid rgba(255,255,255,.17); border-radius: 999px; background: linear-gradient(145deg,rgba(255,255,255,.09),rgba(13,16,19,.48)); box-shadow: inset 0 1px 0 rgba(255,255,255,.1),0 9px 20px rgba(0,0,0,.2); backdrop-filter:blur(16px) saturate(1.25); touch-action: none; cursor: ew-resize; }
+.watch-slider::before { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: calc(var(--swipe-x) + 42px); background: linear-gradient(90deg,rgba(91,190,136,.28),rgba(91,190,136,.08)); transition: width .38s cubic-bezier(.16,1,.3,1); }
 .watch-slider.swiping::before { transition: width 70ms linear; }
-.watch-slider > span { position: absolute; inset: 0; display: grid; place-items: center; padding-left: 30px; font-size: 10px; font-weight: 650; letter-spacing: .01em; transition: color .25s ease; }
-.watch-slider__handle { position: absolute; top: 3px; left: 3px; display: grid; place-items: center; width: 32px; height: 32px; color: #151619; border-radius: 50%; background: #fff; box-shadow: 0 4px 11px rgba(0,0,0,.24); font-style: normal; transform: translateX(var(--swipe-x)); transition: transform .46s cubic-bezier(.16,1,.3,1), background .3s ease; }
+.watch-slider > span { position: absolute; inset: 0; display: grid; place-items: center; padding-left: 36px; font-size: 9px; font-weight: 720; letter-spacing:.04em; transition: color .25s ease; }
+.watch-slider__handle { position: absolute; top: 3px; left: 3px; display: grid; place-items: center; width: 34px; height: 34px; color: #162019; border-radius: 50%; background: linear-gradient(145deg,#fff,#dfe9e3); box-shadow: 0 5px 13px rgba(0,0,0,.28),inset 0 1px 0 #fff; font-style: normal; transform: translateX(var(--swipe-x)); transition: transform .46s cubic-bezier(.16,1,.3,1), background .3s ease; }
 .watch-slider.swiping .watch-slider__handle { transition: transform 70ms linear, background .3s ease; }
 .watch-slider.settled { color: #fff; border-color: rgba(131,221,176,.4); background: rgba(25,76,53,.88); box-shadow: 0 0 0 1px rgba(131,221,176,.12), 0 0 22px rgba(104,212,156,.26); }
 .watch-slider.settled::before { width: 100%; background: rgba(104,212,156,.22); }
@@ -378,3 +393,6 @@ onBeforeUnmount(() => {
   .deck-footer { min-height: 30px; }
 }
 </style>
+.watch-slider.armed { color:#ffe8a7; border-color:rgba(255,210,105,.36); background:rgba(66,51,23,.64); box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 0 20px rgba(255,195,67,.12); }
+.watch-slider.armed::before { background:linear-gradient(90deg,rgba(255,198,73,.3),rgba(255,198,73,.06)); }
+.watch-slider.armed .watch-slider__handle { color:#4b3510; background:linear-gradient(145deg,#ffe9a8,#edbd50); }
