@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
-import { Check, ChevronRight, Heart, Star } from 'lucide-vue-next'
+import { Check, ChevronRight, Star } from 'lucide-vue-next'
 import cinematicAnimeCollage from '../assets/cinematic-anime-collage.png'
 
 const props = defineProps({ movies: { type: Array, required: true } })
@@ -240,7 +240,6 @@ onBeforeUnmount(() => {
         @keydown.space.prevent="openCard(movie, movie.offset)"
       >
         <div class="poster-image" :style="posterStyle(movie)"></div>
-        <button v-if="movie.offset === 0" class="favourite-button" aria-label="收藏这部电影"><Heart :size="21" stroke-width="1.8" /></button>
         <div v-if="movie.offset === 0" class="album-info">
           <p>{{ movie.meta }} · {{ movie.year }}</p>
           <h2>{{ movie.title }}</h2>
@@ -298,7 +297,6 @@ onBeforeUnmount(() => {
 .album-card--pop .poster-image { background-image: radial-gradient(circle at 60% 20%, #ffcc74 0 7%, transparent 8%), linear-gradient(155deg, #4bb5cd, #1c4e80 50%, #061425); }
 .album-card--crayon .poster-image { background-image: radial-gradient(circle at 25% 20%, #ffde68 0 11%, transparent 12%), linear-gradient(155deg, #61c1de, #eca55c 51%, #b33730); }
 .album-card--coco .poster-image { background-image: radial-gradient(circle at 63% 19%, #ffda6b 0 10%, transparent 11%), linear-gradient(150deg, #3a61ad, #8b4074 56%, #f29b53); }
-.favourite-button { position: absolute; z-index: 2; top: 15px; right: 15px; display: grid; place-items: center; width: 38px; height: 38px; padding: 0; color: #fff; border: 1px solid rgba(255,255,255,.58); border-radius: 50%; background: rgba(8, 10, 13, .08); backdrop-filter: blur(8px); }
 .album-info { position: absolute; z-index: 2; right: 0; bottom: 0; left: 0; padding: 50px 13px 12px; background: linear-gradient(180deg, transparent, rgba(7,9,12,.82) 46%, rgba(7,9,12,.94)); }
 .album-info p { margin: 0; color: rgba(255,255,255,.82); font-size: 10px; font-weight: 600; }
 .album-info h2 { max-width: 92%; margin: 3px 0 0; font-size: 18px; line-height: 1.18; letter-spacing: -.055em; }
@@ -346,7 +344,6 @@ onBeforeUnmount(() => {
   .deck { height: 318px; }
   .album-card { height: 304px; }
   .album-info { padding-top: 44px; }
-  .favourite-button { top: 14px; right: 14px; width: 40px; height: 40px; }
   .deck-footer { min-height: 30px; }
 }
 </style>

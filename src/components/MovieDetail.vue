@@ -7,6 +7,8 @@ const props = defineProps({ movie: { type: Object, required: true } })
 const emit = defineEmits(['back', 'update-watched'])
 const liked = ref(false)
 const scrollProgress = ref(0)
+const editing = ref(false)
+const reviewDraft = ref(props.movie.feeling || '')
 
 const posterStyle = computed(() => {
   const path = props.movie.backdropUrl || props.movie.posterUrl || props.movie.backdrop_path || props.movie.poster_path
@@ -53,7 +55,8 @@ function setWatched(value) {
 
         <section class="glass-panel review-panel">
           <div class="section-title"><h2>我的影评</h2><time>{{ movie.year }}</time></div>
-          <blockquote>“{{ movie.feeling }}”</blockquote>
+          <textarea v-if="editing" v-model="reviewDraft" class="review-editor" aria-label="编辑我的影评"></textarea>
+          <blockquote v-else>“{{ reviewDraft }}”</blockquote>
           <div class="review-rating"><Star v-for="n in 5" :key="n" :size="16" fill="currentColor" /><span>{{ movie.rating ?? '未评分' }}</span></div>
         </section>
 
@@ -66,7 +69,7 @@ function setWatched(value) {
     </div>
 
     <footer class="detail-dock">
-      <button class="edit-dock" aria-label="编辑电影记录"><Pencil :size="18" /><span>编辑</span></button>
+      <button class="edit-dock" :aria-label="editing ? '完成编辑' : '编辑电影记录'" @click="editing = !editing"><Pencil :size="18" /><span>{{ editing ? '完成' : '编辑' }}</span></button>
       <div class="watch-switch" :class="{ watched: movie.watched }" role="group" aria-label="观看状态">
         <span class="switch-thumb" aria-hidden="true"></span>
         <button :class="{ selected: !movie.watched }" @click="setWatched(false)">未观看</button>
@@ -95,6 +98,7 @@ function setWatched(value) {
 .glass-panel::after { content:''; position:absolute; top:-45%; right:-26%; width:62%; height:110%; border-radius:50%; background:radial-gradient(circle,rgba(255,255,255,.12),transparent 66%); transform:rotate(-18deg); pointer-events:none; }
 .glass-panel h2 { position:relative; z-index:1; margin:0; color:#f9f1e8; font:500 18px Georgia,'Songti SC',serif; }.glass-panel p{position:relative;z-index:1;margin:14px 0 0;color:rgba(246,240,233,.68);font-size:11px;line-height:1.9}
 .section-title{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between}.section-title time{color:rgba(246,240,233,.35);font-size:9px}.review-panel blockquote{position:relative;z-index:1;margin:16px 0 0;color:var(--accent);font:14px/1.7 Georgia,'Songti SC',serif}.review-rating{position:relative;z-index:1;display:flex;align-items:center;gap:4px;margin-top:18px;color:var(--accent)}.review-rating span{margin-left:5px;font:12px Georgia,serif}
+.review-editor{position:relative;z-index:1;width:100%;min-height:78px;margin-top:14px;padding:12px;color:#fff7ef;border:1px solid rgba(255,255,255,.16);border-radius:15px;outline:0;resize:none;background:rgba(0,0,0,.16);font:12px/1.7 Georgia,'Songti SC',serif}.review-editor:focus{border-color:color-mix(in srgb,var(--accent) 60%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 12%,transparent)}
 .detail-stats{display:grid;grid-template-columns:repeat(3,1fr);padding:20px 4px;color:rgba(246,240,233,.72);text-align:center}.detail-stats div+div{border-left:1px solid rgba(255,255,255,.1)}.detail-stats strong,.detail-stats span{display:block}.detail-stats strong{font:16px Georgia,serif}.detail-stats span{margin-top:5px;color:rgba(246,240,233,.32);font-size:8px}
 .detail-dock{position:absolute;z-index:6;right:14px;bottom:20px;left:0;display:flex;align-items:center;justify-content:space-between;pointer-events:none}.detail-dock button{pointer-events:auto}
 .edit-dock{display:flex;align-items:center;gap:7px;width:84px;height:50px;padding:0 12px 0 18px;color:#fff5ec;border:1px solid rgba(255,255,255,.22);border-left:0;border-radius:0 19px 19px 0;background:rgba(23,26,27,.72);box-shadow:inset 0 1px 0 rgba(255,255,255,.22),8px 12px 24px rgba(0,0,0,.28);backdrop-filter:blur(20px) saturate(1.35);font-size:11px;font-weight:700}.edit-dock svg{color:var(--accent)}

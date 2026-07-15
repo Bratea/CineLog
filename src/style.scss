@@ -12,7 +12,9 @@ h1, h2, p { margin: 0; }
 h1 { font-size: 28px; letter-spacing: -.07em; line-height: 1.05; }
 .welcome-row p { margin-top: 7px; color: #929399; font-size: 11px; }
 .avatar-button { display: grid; width: 42px; height: 42px; padding: 3px; color: #fff; border: 0; border-radius: 50%; background: linear-gradient(145deg, #f0d0aa, #7b5b48); box-shadow: 0 7px 13px rgba(0,0,0,.1); }
-.avatar-button span { display: grid; place-items: center; border-radius: 50%; background: #28242a; font-family: Georgia, serif; font-size: 14px; }
+.avatar-button span, .avatar-button img { width: 100%; height: 100%; border-radius: 50%; }
+.avatar-button span { display: grid; place-items: center; background: #28242a; font-family: Georgia, serif; font-size: 14px; }
+.avatar-button img { display: block; object-fit: cover; }
 .dashboard-controls { display: flex; align-items: center; gap: 9px; margin-top: 24px; }
 .status-switch { position: relative; display: grid; grid-template-columns: repeat(2, 1fr); flex: 1; gap: 7px; height: 42px; overflow: visible; border: 0; background: transparent; isolation: isolate; }
 .status-switch__thumb { position: absolute; z-index: 0; top: 0; bottom: 0; left: 0; width: calc((100% - 7px) / 2); border: 1px solid rgba(255,255,255,.09); border-radius: 15px; background: #17181b; box-shadow: 0 8px 18px rgba(18,19,22,.2); transition: transform .64s cubic-bezier(.16,1,.3,1); }
@@ -35,8 +37,14 @@ h1 { font-size: 28px; letter-spacing: -.07em; line-height: 1.05; }
 .stage-heading h2 { font-size: 18px; letter-spacing: -.055em; }
 .stage-heading p { margin-top: 4px; color: #9a9ba0; font-size: 10px; }
 .stage-heading > span { color: #85868b; font-size: 11px; font-weight: 700; }
+.year-picker { position: relative; z-index: 6; }
 .year-select, .period-badge { min-width: 76px; height: 31px; padding: 0 10px; color: #fff; border: 0; border-radius: 999px; outline: 0; background: #202125; box-shadow: 0 7px 14px rgba(14,15,18,.14); font-size: 11px; font-weight: 700; text-align: center; }
-.year-select { padding-right: 6px; }
+.year-select { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.year-select svg { transition: transform .3s cubic-bezier(.16,1,.3,1); }.year-select[aria-expanded='true'] svg { transform: rotate(180deg); }
+.year-menu { position: absolute; top: 38px; right: 0; display: grid; min-width: 112px; padding: 6px; overflow: hidden; border: 1px solid rgba(255,255,255,.12); border-radius: 16px; background: rgba(25,26,29,.94); box-shadow: 0 18px 32px rgba(10,11,13,.25); backdrop-filter: blur(20px); }
+.year-menu button { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 36px; padding: 0 10px; color: rgba(255,255,255,.62); border: 0; border-radius: 11px; background: transparent; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.year-menu button:hover, .year-menu button[aria-selected='true'] { color: #fff; background: rgba(255,255,255,.1); }
+.year-menu button svg { color: #ffbd73; }
 .period-badge { cursor: pointer; }
 .bottom-nav { position: absolute; z-index: 7; right: 0; bottom: 22px; left: 0; height: 60px; pointer-events: none; }
 .bottom-nav button { border: 0; cursor: pointer; pointer-events: auto; }
@@ -45,7 +53,7 @@ h1 { font-size: 28px; letter-spacing: -.07em; line-height: 1.05; }
 .add-dock:hover { width: 66px; background: #292a2e; }
 .add-dock:active { transform: translateX(-3px) scale(.97); }
 .add-dock img { width: 48px; height: 48px; object-fit: contain; image-rendering: pixelated; }
-.nav-island { position: absolute; top: 0; left: 50%; display: grid; grid-template-columns: repeat(2, 1fr); align-items: center; width: 116px; height: 59px; padding: 5px 7px; border: 1px solid rgba(255,255,255,.12); border-radius: 23px; background: rgba(23,24,27,.93); box-shadow: 0 13px 25px rgba(0,0,0,.2); backdrop-filter: blur(20px); pointer-events: auto; transform: translateX(18%); }
+.nav-island { position: absolute; top: 0; left: 50%; display: grid; grid-template-columns: repeat(2, 1fr); align-items: center; width: 116px; height: 59px; padding: 5px 7px; border: 1px solid rgba(255,255,255,.12); border-radius: 23px; background: rgba(23,24,27,.93); box-shadow: 0 13px 25px rgba(0,0,0,.2); backdrop-filter: blur(20px); pointer-events: auto; transform: translateX(30%); }
 .nav-island button { display: grid; place-items: center; height: 43px; padding: 5px; border-radius: 50%; background: transparent; transition: transform .28s cubic-bezier(.16,1,.3,1), background .25s ease; }
 .nav-island button img { width: 31px; height: 31px; object-fit: contain; image-rendering: pixelated; }
 .nav-island button.selected { background: #fff; box-shadow: 0 3px 9px rgba(0,0,0,.18); }
@@ -67,7 +75,7 @@ h1 { font-size: 28px; letter-spacing: -.07em; line-height: 1.05; }
 .settings-header h1 { font-size: 25px; }
 .settings-header p { margin-top: 3px; color: #929399; font-size: 10px; }
 .profile-card { display: flex; align-items: center; gap: 13px; margin-top: 34px; padding: 17px; color: #fff; border-radius: 24px; background: #1d1e21; box-shadow: 0 15px 30px rgba(18,19,22,.17); }
-.profile-avatar { display: grid; place-items: center; width: 48px; height: 48px; flex: 0 0 auto; border: 2px solid #cba777; border-radius: 50%; background: #2b272c; font-family: Georgia, serif; font-size: 17px; }
+.profile-avatar { display: grid; place-items: center; width: 48px; height: 48px; flex: 0 0 auto; overflow: hidden; border: 2px solid #cba777; border-radius: 50%; background: #2b272c; font-family: Georgia, serif; font-size: 17px; }.profile-avatar img { width:100%; height:100%; object-fit:cover; }
 .profile-card > div:last-child { display: grid; gap: 4px; }
 .profile-card strong { font-size: 16px; }
 .profile-card span { color: rgba(255,255,255,.56); font-size: 10px; }
@@ -81,6 +89,7 @@ h1 { font-size: 28px; letter-spacing: -.07em; line-height: 1.05; }
 .drop-swap-leave-to { opacity: 0; transform: translateY(92px) rotate(4deg) scale(.96); }
 .drop-swap-enter-active { animation: view-land .68s cubic-bezier(.16,1,.3,1) both; }
 .drop-swap-enter-from { opacity: 0; }
+.year-menu-enter-active, .year-menu-leave-active { transition: opacity .2s ease, transform .32s cubic-bezier(.16,1,.3,1); transform-origin: top right; }.year-menu-enter-from, .year-menu-leave-to { opacity:0; transform:translateY(-5px) scale(.94); }
 @keyframes sheet-in { from { transform: translateY(105%); } }
 @keyframes float-orb { to { transform: translate3d(18px,-16px,0) scale(1.08); } }
 @keyframes island-arrive { from { opacity: 0; transform: translateY(14px) scale(.92); } }

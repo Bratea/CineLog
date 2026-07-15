@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { ChevronLeft } from 'lucide-vue-next'
+import { Check, ChevronDown, ChevronLeft } from 'lucide-vue-next'
 import MovieCarousel from './components/MovieCarousel.vue'
 import MovieList from './components/MovieList.vue'
 import MovieDetail from './components/MovieDetail.vue'
@@ -16,11 +16,15 @@ const movieRecords = ref(movies.map((movie) => ({ ...movie })))
 const activeTab = ref('home')
 const addOpen = ref(false)
 const username = ref(localStorage.getItem('movie-username') || '通通')
+const storedAvatarUrl = localStorage.getItem('movie-avatar') || ''
+const avatarUrl = ref(/^https?:\/\//i.test(storedAvatarUrl) ? storedAvatarUrl : '')
+if (storedAvatarUrl && !avatarUrl.value) localStorage.removeItem('movie-avatar')
 const activeWatchStat = ref('watched')
 const viewMode = ref('cards')
 const statPeriod = ref(localStorage.getItem('movie-stat-period') || 'year')
 const selectedYear = ref('2026')
 const selectedMovie = ref(null)
+const yearMenuOpen = ref(false)
 
 const watchedCount = computed(() => movieRecords.value.filter((movie) => movie.watched).length)
 const unwatchedCount = computed(() => movieRecords.value.length - watchedCount.value)
@@ -34,6 +38,7 @@ const periodLabel = computed(() => ({ year: `${selectedYear.value} 年`, month: 
 const watchedSubtitle = computed(() => `按${({ year: '年', month: '月', week: '周', day: '日' })[statPeriod.value]}整理 · 共 ${filteredMovies.value.length} 部`)
 
 watch(username, (value) => localStorage.setItem('movie-username', value || '用户'))
+watch(avatarUrl, (value) => localStorage.setItem('movie-avatar', value || ''))
 watch(statPeriod, (value) => localStorage.setItem('movie-stat-period', value))
 
 function setWatchStat(value) {
@@ -62,6 +67,11 @@ function closeDetail() {
 function updateWatched(value) {
   if (selectedMovie.value) selectedMovie.value.watched = value
 }
+
+function selectYear(year) {
+  selectedYear.value = year
+  yearMenuOpen.value = false
+}
 </script>
 
 <template>
@@ -77,7 +87,10 @@ function updateWatched(value) {
               <h1>{{ username }}的观影记录</h1>
               <p>把看过的故事，留在这里。</p>
             </div>
-            <button class="avatar-button" aria-label="打开个人设置" @click="currentPage = 'settings'"><span>{{ username.slice(0, 1) }}</span></button>
+            <button class="avatar-button" aria-label="打开个人设置" @click="currentPage = 'settings'">
+              <img v-if="avatarUrl" :src="avatarUrl" alt="用户头像" @error="avatarUrl = ''" />
+              <span v-else>{{ username.slice(0, 1) }}</span>
+            </button>
           </div>
 
           <div class="dashboard-controls">
@@ -104,16 +117,25 @@ function updateWatched(value) {
               <h2 id="recent-heading">{{ activeWatchStat === 'watched' ? '已观看' : '未观看' }}</h2>
               <p>{{ activeWatchStat === 'watched' ? watchedSubtitle : `还有 ${unwatchedCount} 部等待观看` }}</p>
             </div>
-            <select v-if="activeWatchStat === 'watched' && statPeriod === 'year'" v-model="selectedYear" class="year-select" aria-label="选择年份">
-              <option v-for="year in watchedYears" :key="year" :value="year">{{ year }} 年</option>
-            </select>
+            <div v-if="activeWatchStat === 'watched' && statPeriod === 'year'" class="year-picker">
+              <button class="year-select" aria-label="选择年份" :aria-expanded="yearMenuOpen" @click="yearMenuOpen = !yearMenuOpen" @keydown.esc="yearMenuOpen = false">
+                {{ selectedYear }} 年 <ChevronDown :size="14" />
+              </button>
+              <Transition name="year-menu">
+                <div v-if="yearMenuOpen" class="year-menu" role="listbox" aria-label="年份列表">
+                  <button v-for="year in watchedYears" :key="year" role="option" :aria-selected="year === selectedYear" @click="selectYear(year)">
+                    <span>{{ year }} 年</span><Check v-if="year === selectedYear" :size="14" />
+                  </button>
+                </div>
+              </Transition>
+            </div>
             <button v-else-if="activeWatchStat === 'watched'" class="period-badge" @click="currentPage = 'settings'">{{ periodLabel }}</button>
             <span v-else>{{ filteredMovies.length }} 部</span>
           </div>
 
           <Transition name="drop-swap" mode="out-in">
             <MovieCarousel v-if="viewMode === 'cards'" :key="`cards-${activeWatchStat}-${statPeriod}-${selectedYear}`" :movies="filteredMovies" @mark-watched="markWatched" @open-detail="openDetail" />
-            <MovieList v-else :key="`list-${activeWatchStat}-${statPeriod}-${selectedYear}`" :movies="filteredMovies" />
+            <MovieList v-else :key="`list-${activeWatchStat}-${statPeriod}-${selectedYear}`" :movies="filteredMovies" @open-detail="openDetail" />
           </Transition>
         </section>
 
@@ -144,7 +166,7 @@ function updateWatched(value) {
         </header>
 
         <div class="profile-card">
-          <div class="profile-avatar">{{ username.slice(0, 1) }}</div>
+          <div class="profile-avatar"><img v-if="avatarUrl" :src="avatarUrl" alt="用户头像" @error="avatarUrl = ''" /><span v-else>{{ username.slice(0, 1) }}</span></div>
           <div><strong>{{ username || '未命名用户' }}</strong><span>{{ watchedCount }} 部已观看</span></div>
         </div>
 
@@ -152,6 +174,12 @@ function updateWatched(value) {
           <label for="username">用户名</label>
           <input id="username" v-model.trim="username" maxlength="10" placeholder="输入你的名字" />
           <small>首页将显示“{{ username || '用户' }}的观影记录”</small>
+        </div>
+
+        <div class="settings-group">
+          <label for="avatar-url">头像图片地址</label>
+          <input id="avatar-url" v-model.trim="avatarUrl" type="url" placeholder="粘贴头像图片 URL（可选）" />
+          <small>设置后首页将优先显示头像，图片不可用时自动显示姓名首字。</small>
         </div>
 
         <div class="settings-group">

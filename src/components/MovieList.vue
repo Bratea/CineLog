@@ -3,11 +3,12 @@ import { Check, ChevronRight, Star } from 'lucide-vue-next'
 import cinematicAnimeCollage from '../assets/cinematic-anime-collage.png'
 
 defineProps({ movies: { type: Array, required: true } })
+const emit = defineEmits(['open-detail'])
 </script>
 
 <template>
   <div class="movie-list" aria-label="电影列表视图">
-    <article v-for="movie in movies" :key="movie.id" class="movie-list-item">
+    <article v-for="movie in movies" :key="movie.id" class="movie-list-item" role="button" tabindex="0" :aria-label="`查看 ${movie.title} 详情`" @click="emit('open-detail', movie)" @keydown.enter.prevent="emit('open-detail', movie)">
       <div class="movie-list-poster" :class="`movie-list-poster--${movie.poster}`" :style="movie.poster === 'demon' ? { backgroundImage: `url(${cinematicAnimeCollage})` } : {}"></div>
       <div class="movie-list-copy">
         <p>{{ movie.meta }} · {{ movie.year }}</p>
@@ -17,7 +18,7 @@ defineProps({ movies: { type: Array, required: true } })
           <span :class="{ pending: !movie.watched }"><Check :size="10" />{{ movie.watched ? '已观看' : '未观看' }}</span>
         </div>
       </div>
-      <button aria-label="查看电影详情"><ChevronRight :size="18" /></button>
+      <span class="movie-list-arrow" aria-hidden="true"><ChevronRight :size="18" /></span>
     </article>
     <p v-if="!movies.length" class="movie-list-empty">这里还没有电影。</p>
   </div>
@@ -39,8 +40,9 @@ defineProps({ movies: { type: Array, required: true } })
 .movie-list-copy span { display: inline-flex; align-items: center; gap: 3px; color: #515258; font-size: 9px; font-weight: 700; }
 .movie-list-copy span:first-child svg { color: #f2b900; }
 .movie-list-copy span.pending { color: #b58000; }
-.movie-list-item > button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; color: #fff; border: 0; border-radius: 50%; background: #1e1f22; transition: transform .3s cubic-bezier(.16,1,.3,1); }
-.movie-list-item > button:hover { transform: translateX(2px) scale(1.04); }
+.movie-list-item { cursor: pointer; }.movie-list-item:focus-visible { outline: 2px solid #1e1f22; outline-offset: 2px; }
+.movie-list-arrow { display: grid; place-items: center; width: 32px; height: 32px; color: #fff; border-radius: 50%; background: #1e1f22; transition: transform .3s cubic-bezier(.16,1,.3,1); }
+.movie-list-item:hover .movie-list-arrow { transform: translateX(2px) scale(1.04); }
 .movie-list-empty { padding: 40px 0; color: #999a9f; text-align: center; font-size: 12px; }
 @keyframes row-in { 0% { opacity: 0; transform: translateY(15px) scale(.97); } 72% { opacity: 1; transform: translateY(-1px) scale(1.018); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
 @media (prefers-reduced-motion: reduce) { .movie-list-item { animation: none; } }
