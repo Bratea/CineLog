@@ -697,7 +697,7 @@ function addTmdbMovie(result) {
     tmdbSearchMessage.value = '这部电影已经在记录中了。'
     return
   }
-  movieRecords.value.unshift({
+  const movie = {
     id: `tmdb-${result.id}`,
     tmdbId: result.id,
     title: result.title || result.original_title,
@@ -720,7 +720,8 @@ function addTmdbMovie(result) {
     backdrop_path: result.backdrop_path,
     overview: result.overview || '暂无剧情简介。',
     feeling: addWatched.value ? (addReview.value.trim() || '已观看，暂时没有写下评价。') : '刚刚加入待看清单。',
-  })
+  }
+  movieRecords.value.unshift(movie)
   activeWatchStat.value = addWatched.value ? 'watched' : 'unwatched'
   tmdbSearchMessage.value = `已将《${result.title || result.original_title}》加入${addWatched.value ? '已观看' : '未观看'}。`
   selectedTmdbResult.value = null
@@ -815,7 +816,7 @@ function navigateDetail(direction) {
       <div class="ambient-orb ambient-orb--one" aria-hidden="true"></div>
       <div class="ambient-orb ambient-orb--two" aria-hidden="true"></div>
 
-      <Transition :name="surfaceTransitionName" :duration="680">
+      <Transition :name="surfaceTransitionName" :duration="820">
         <section v-if="surfacePage === 'home'" key="home" class="surface-view home-surface" :class="{ 'is-surface-dragging': surfaceDragging }" :style="{ '--surface-drag': `${surfaceDragX}px` }" @pointerdown="surfacePointerDown" @pointermove="surfacePointerMove" @pointerup="surfacePointerUp" @pointercancel="surfacePointerUp">
         <header class="topbar surface-piece" style="--piece-order: 0">
           <div class="welcome-row">
