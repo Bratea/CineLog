@@ -8,6 +8,7 @@ import CategorySettings from './components/CategorySettings.vue'
 import DetailLayoutSettings from './components/DetailLayoutSettings.vue'
 import RotatingText from './components/RotatingText.vue'
 import { movies } from './data/movies'
+import { getLocalValue, setLocalValue } from './services/localDatabase'
 import cinematicAnimeCollage from './assets/cinematic-anime-collage.png'
 import pixelPlus from './assets/pixel-plus.webp'
 import pixelHome from './assets/pixel-home.webp'
@@ -17,7 +18,7 @@ import pixelRows from './assets/pixel-rows.webp'
 
 const currentPage = ref('home')
 const sampleRecordDates = ['2026-07-12', '2026-07-13', '2026-07-15', '2026-07-14']
-const MOVIE_RECORDS_STORAGE_KEY = 'movie-records-v1'
+const MOVIE_RECORDS_STORAGE_KEY = 'movie-records'
 const defaultMovieRecords = movies.map((movie, index) => ({
   ...movie,
   favourite: index === 0,
@@ -25,16 +26,29 @@ const defaultMovieRecords = movies.map((movie, index) => ({
   releaseDate: movie.releaseDate || sampleRecordDates[index] || '',
 }))
 
-function loadMovieRecords() {
+const movieRecords = ref(defaultMovieRecords)
+const movieRecordsReady = ref(false)
+let persistMovieRecordsTimer
+
+async function hydrateMovieRecords() {
   try {
-    const saved = JSON.parse(localStorage.getItem(MOVIE_RECORDS_STORAGE_KEY))
-    return Array.isArray(saved) ? saved : defaultMovieRecords
-  } catch {
-    return defaultMovieRecords
+    let saved = await getLocalValue(MOVIE_RECORDS_STORAGE_KEY)
+
+    // Migrate records created by the earlier browser-storage implementation.
+    if (!Array.isArray(saved)) {
+      const legacy = JSON.parse(localStorage.getItem('movie-records-v1'))
+      if (Array.isArray(legacy)) saved = legacy
+    }
+
+    if (Array.isArray(saved)) movieRecords.value = saved
+  } catch (error) {
+    console.error('读取本地电影数据库失败：', error)
+  } finally {
+    movieRecordsReady.value = true
   }
 }
 
-const movieRecords = ref(loadMovieRecords())
+hydrateMovieRecords()
 const activeTab = ref('home')
 const addOpen = ref(false)
 const username = ref(localStorage.getItem('movie-username') || '通通')
@@ -248,11 +262,14 @@ watch(libraryYearValue, (value) => localStorage.setItem('movie-library-year', St
 watch(libraryMonthValue, (value) => localStorage.setItem('movie-library-month', String(value)))
 watch(selectedLibraryDay, (value) => localStorage.setItem('movie-library-day', String(value)))
 watch(movieRecords, (value) => {
-  try {
-    localStorage.setItem(MOVIE_RECORDS_STORAGE_KEY, JSON.stringify(value))
-  } catch (error) {
-    console.error('电影记录保存到本地失败：', error)
-  }
+  if (!movieRecordsReady.value) return
+  window.clearTimeout(persistMovieRecordsTimer)
+  const snapshot = JSON.parse(JSON.stringify(value))
+  persistMovieRecordsTimer = window.setTimeout(() => {
+    setLocalValue(MOVIE_RECORDS_STORAGE_KEY, snapshot).catch((error) => {
+      console.error('电影记录保存到本地数据库失败：', error)
+    })
+  }, 120)
 }, { deep: true })
 watch(categorySettings, (value) => localStorage.setItem('movie-category-settings', JSON.stringify(value)), { deep: true })
 watch(detailLayout, (value) => localStorage.setItem('movie-detail-layout', JSON.stringify(value.map((item) => item.id))), { deep: true })
@@ -798,7 +815,7 @@ function navigateDetail(direction) {
       <div class="ambient-orb ambient-orb--one" aria-hidden="true"></div>
       <div class="ambient-orb ambient-orb--two" aria-hidden="true"></div>
 
-      <Transition :name="surfaceTransitionName" :duration="{ enter: 720, leave: 650 }">
+      <Transition :name="surfaceTransitionName" :duration="680">
         <section v-if="surfacePage === 'home'" key="home" class="surface-view home-surface" :class="{ 'is-surface-dragging': surfaceDragging }" :style="{ '--surface-drag': `${surfaceDragX}px` }" @pointerdown="surfacePointerDown" @pointermove="surfacePointerMove" @pointerup="surfacePointerUp" @pointercancel="surfacePointerUp">
         <header class="topbar surface-piece" style="--piece-order: 0">
           <div class="welcome-row">
