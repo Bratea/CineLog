@@ -4,6 +4,7 @@ import { ChevronLeft } from 'lucide-vue-next'
 import MovieCarousel from './components/MovieCarousel.vue'
 import MovieList from './components/MovieList.vue'
 import MovieDetail from './components/MovieDetail.vue'
+import LibraryPage from './components/LibraryPage.vue'
 import { movies } from './data/movies'
 import pixelPlus from './assets/pixel-plus.webp'
 import pixelHome from './assets/pixel-home.webp'
@@ -21,6 +22,7 @@ const viewMode = ref('cards')
 const statPeriod = ref(localStorage.getItem('movie-stat-period') || 'year')
 const selectedYear = ref('2026')
 const selectedMovie = ref(null)
+const detailOrigin = ref('home')
 
 const watchedCount = computed(() => movieRecords.value.filter((movie) => movie.watched).length)
 const unwatchedCount = computed(() => movieRecords.value.length - watchedCount.value)
@@ -51,12 +53,23 @@ function markWatched(id) {
 
 function openDetail(movie) {
   selectedMovie.value = movie
+  detailOrigin.value = currentPage.value
   currentPage.value = 'detail'
 }
 
 function closeDetail() {
-  currentPage.value = 'home'
+  currentPage.value = detailOrigin.value
   selectedMovie.value = null
+}
+
+function showHome() {
+  activeTab.value = 'home'
+  currentPage.value = 'home'
+}
+
+function showLibrary() {
+  activeTab.value = 'list'
+  currentPage.value = 'library'
 }
 
 function updateWatched(value) {
@@ -66,7 +79,7 @@ function updateWatched(value) {
 
 <template>
   <main class="app-shell">
-    <section class="phone" :aria-label="currentPage === 'home' ? `${username}的观影记录首页` : currentPage === 'detail' ? '电影详情页面' : '个人设置页面'">
+    <section class="phone" :aria-label="currentPage === 'home' ? `${username}的观影记录首页` : currentPage === 'library' ? '电影列表页面' : currentPage === 'detail' ? '电影详情页面' : '个人设置页面'">
       <div class="ambient-orb ambient-orb--one" aria-hidden="true"></div>
       <div class="ambient-orb ambient-orb--two" aria-hidden="true"></div>
 
@@ -120,8 +133,8 @@ function updateWatched(value) {
         <nav class="bottom-nav" aria-label="主要导航">
           <button class="add-dock" aria-label="添加电影记录" @click="addOpen = true"><img :src="pixelPlus" alt="" /></button>
           <div class="nav-island">
-            <button :class="{ selected: activeTab === 'home' }" aria-label="首页" @click="activeTab = 'home'"><img :src="pixelHome" alt="" /></button>
-            <button :class="{ selected: activeTab === 'list' }" aria-label="电影列表" @click="activeTab = 'list'"><img :src="pixelMovieList" alt="" /></button>
+            <button :class="{ selected: activeTab === 'home' }" aria-label="首页" @click="showHome"><img :src="pixelHome" alt="" /></button>
+            <button :class="{ selected: activeTab === 'list' }" aria-label="电影列表" @click="showLibrary"><img :src="pixelMovieList" alt="" /></button>
           </div>
         </nav>
 
@@ -134,6 +147,8 @@ function updateWatched(value) {
           </div>
         </div>
       </template>
+
+      <LibraryPage v-else-if="currentPage === 'library'" :movies="movieRecords" :home-icon="pixelHome" :list-icon="pixelMovieList" @home="showHome" @open-detail="openDetail" />
 
       <MovieDetail v-else-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" @back="closeDetail" @update-watched="updateWatched" />
 

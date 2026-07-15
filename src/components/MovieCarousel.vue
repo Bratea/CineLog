@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
-import { Check, ChevronRight, Heart, Star } from 'lucide-vue-next'
+import { Check, ChevronRight, ChevronUp, Heart, Star } from 'lucide-vue-next'
 import cinematicAnimeCollage from '../assets/cinematic-anime-collage.png'
 
 const props = defineProps({ movies: { type: Array, required: true } })
@@ -12,7 +12,10 @@ const deck = ref(null)
 const glowCanvas = ref(null)
 const dragStart = ref(null)
 const dragX = ref(0)
+const dragY = ref(0)
+const dragAxis = ref(null)
 const isDragging = ref(false)
+const isOpeningDetail = ref(false)
 const swipeStartX = ref(null)
 const swipeX = ref(0)
 const swipeMax = ref(0)
@@ -20,6 +23,8 @@ const isSwiping = ref(false)
 const swipeSettled = ref(false)
 const settlePulse = ref(false)
 const suppressCardClick = ref(false)
+
+let openTimer
 
 let renderer
 let scene
@@ -39,6 +44,7 @@ const cardMovies = computed(() => {
 })
 
 const visualOffset = (offset) => offset + dragX.value / 300
+const openProgress = computed(() => Math.min(1, Math.max(0, -dragY.value / 112)))
 
 function move(direction) {
   const count = props.movies.length
@@ -52,30 +58,60 @@ function move(direction) {
 }
 
 function pointerDown(event) {
-  dragStart.value = event.clientX
+  if (isOpeningDetail.value || event.target.closest('button, [role="slider"]')) return
+  dragStart.value = { x: event.clientX, y: event.clientY }
   dragX.value = 0
+  dragY.value = 0
+  dragAxis.value = null
   isDragging.value = true
   event.currentTarget.setPointerCapture?.(event.pointerId)
 }
 
 function pointerMove(event) {
   if (dragStart.value === null) return
-  dragX.value = Math.max(-110, Math.min(110, event.clientX - dragStart.value))
+  const deltaX = event.clientX - dragStart.value.x
+  const deltaY = event.clientY - dragStart.value.y
+  if (!dragAxis.value && Math.hypot(deltaX, deltaY) > 7) {
+    dragAxis.value = Math.abs(deltaY) > Math.abs(deltaX) * 1.08 ? 'vertical' : 'horizontal'
+  }
+  if (dragAxis.value === 'vertical') {
+    dragY.value = Math.max(-126, Math.min(24, deltaY))
+  } else if (dragAxis.value === 'horizontal') {
+    dragX.value = Math.max(-110, Math.min(110, deltaX))
+  }
 }
 
 function pointerUp(event) {
   if (dragStart.value === null) return
-  const delta = event.clientX - dragStart.value
-  suppressCardClick.value = Math.abs(delta) > 8
-  if (Math.abs(delta) > 46) move(delta > 0 ? -1 : 1)
+  const deltaX = event.clientX - dragStart.value.x
+  const deltaY = event.clientY - dragStart.value.y
+  const moved = Math.hypot(deltaX, deltaY)
+  suppressCardClick.value = moved > 8
+
+  if (dragAxis.value === 'vertical' && deltaY < -68) {
+    beginDetailOpen(activeMovie.value)
+  } else if (dragAxis.value === 'horizontal' && Math.abs(deltaX) > 46) {
+    move(deltaX > 0 ? -1 : 1)
+  }
+
   dragStart.value = null
   dragX.value = 0
+  if (!isOpeningDetail.value) dragY.value = 0
+  dragAxis.value = null
   isDragging.value = false
   window.setTimeout(() => { suppressCardClick.value = false }, 80)
 }
 
 function openCard(movie, offset) {
-  if (offset === 0 && !suppressCardClick.value) emit('open-detail', movie)
+  if (offset === 0 && !suppressCardClick.value) beginDetailOpen(movie)
+}
+
+function beginDetailOpen(movie) {
+  if (!movie || isOpeningDetail.value) return
+  isOpeningDetail.value = true
+  dragY.value = -112
+  suppressCardClick.value = true
+  openTimer = window.setTimeout(() => emit('open-detail', movie), 430)
 }
 
 function posterStyle(movie) {
@@ -90,12 +126,14 @@ function posterStyle(movie) {
 function cardStyle(offset) {
   const value = visualOffset(offset)
   const isActive = Math.abs(offset) < 0.1
+  const progress = isActive ? openProgress.value : 0
   return {
     '--x': `${value * 58}%`,
     '--rotate': `${value * 5}deg`,
     '--tilt': `${value * -6}deg`,
-    '--lift': isActive ? '0px' : '12px',
-    '--scale': isActive ? 1 : 0.9,
+    '--lift': isActive ? `${progress * -34}px` : '12px',
+    '--scale': isActive ? 1 + progress * .055 : 0.9,
+    '--open-progress': progress,
     '--opacity': isActive ? 1 : 0.76,
     '--blur': isActive ? '0px' : '.35px',
     '--z': isActive ? 3 : offset < 0 ? 1 : 2,
@@ -200,6 +238,7 @@ watch(activeIndex, () => nextTick())
 watch(() => props.movies, () => { activeIndex.value = 0; resetSwipe() })
 onMounted(setupThree)
 onBeforeUnmount(() => {
+  window.clearTimeout(openTimer)
   cancelAnimationFrame(frame)
   resizeObserver?.disconnect()
   material?.dispose()
@@ -212,7 +251,7 @@ onBeforeUnmount(() => {
     <div
       ref="deck"
       class="deck"
-      :class="{ dragging: isDragging }"
+      :class="{ dragging: isDragging, 'opening-detail': isOpeningDetail }"
       @pointerdown="pointerDown"
       @pointermove="pointerMove"
       @pointerup="pointerUp"
@@ -275,6 +314,10 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
+        <div v-if="movie.offset === 0" class="pull-detail-hint" aria-hidden="true">
+          <ChevronUp :size="13" stroke-width="2.4" />
+          <span>向上拖动展开</span>
+        </div>
       </article>
     </div>
 
@@ -286,12 +329,14 @@ onBeforeUnmount(() => {
 
 <style lang="scss" scoped>
 .album { margin: 0; }
-.deck { position: relative; height: 374px; margin: 0 15px; overflow: hidden; border-radius: 30px; touch-action: pan-y; user-select: none; perspective: 1250px; }
+.deck { position: relative; height: 374px; margin: 0 15px; overflow: hidden; border-radius: 30px; touch-action: none; user-select: none; perspective: 1250px; }
 .three-glow { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; opacity: .7; }
-.album-card { position: absolute; z-index: var(--z); bottom: 0; left: 50%; width: min(69vw, 302px); height: 358px; overflow: hidden; color: #fff; border: 1px solid rgba(255,255,255,.38); border-radius: 27px; box-shadow: 0 19px 30px rgba(9, 10, 14, .19); opacity: var(--opacity); transform-origin: center bottom; transform: translateX(calc(-50% + var(--x))) translateY(var(--lift)) rotateZ(var(--tilt)) rotateY(calc(var(--rotate) * -.45)) scale(var(--scale)); filter: blur(var(--blur)); transition: transform 820ms cubic-bezier(.16, 1, .3, 1), opacity 620ms ease, filter 620ms ease; will-change: transform; backface-visibility: hidden; animation: card-rise .82s cubic-bezier(.16, 1,.3, 1) both; }
+.album-card { position: absolute; z-index: var(--z); bottom: 0; left: 50%; width: min(69vw, 302px); height: 358px; overflow: hidden; color: #fff; border: 1px solid rgba(255,255,255,.38); border-radius: calc(27px - var(--open-progress, 0) * 5px); box-shadow: 0 calc(19px + var(--open-progress, 0) * 12px) 30px rgba(9, 10, 14, calc(.19 + var(--open-progress, 0) * .13)); opacity: var(--opacity); transform-origin: center bottom; transform: translateX(calc(-50% + var(--x))) translateY(var(--lift)) rotateZ(var(--tilt)) rotateY(calc(var(--rotate) * -.45)) scale(var(--scale)); filter: blur(var(--blur)); transition: transform 820ms cubic-bezier(.16, 1, .3, 1), opacity 620ms ease, filter 620ms ease, border-radius 420ms ease, box-shadow 420ms ease; will-change: transform; backface-visibility: hidden; animation: card-rise .82s cubic-bezier(.16, 1,.3, 1) both; }
 .album-card[role='button'] { cursor: pointer; }
 .album-card[role='button']:focus-visible { outline: 2px solid #fff; outline-offset: -5px; }
 .dragging .album-card { transition: none; }
+.opening-detail .album-card:not([role='button']) { opacity: 0 !important; transform: translateX(calc(-50% + var(--x))) translateY(30px) scale(.82); }
+.opening-detail .album-card[role='button'] { z-index: 6; border-radius: 20px; box-shadow: 0 32px 60px rgba(9,10,14,.38); transition: transform 430ms cubic-bezier(.16,1,.3,1), border-radius 430ms ease, box-shadow 430ms ease; }
 .album-card.settle-pop { animation: settle-pop .62s cubic-bezier(.16,1,.3,1) both; }
 .poster-image { position: absolute; inset: 0; background-size: 129% auto; background-position: center 35%; background-repeat: no-repeat; }
 .poster-image::after { content: ''; position: absolute; inset: 24% 0 0; background: linear-gradient(180deg, transparent 0%, rgba(7, 9, 12, .05) 25%, rgba(7, 9, 12, .72) 70%, rgba(7, 9, 12, .92) 100%); }
@@ -302,6 +347,8 @@ onBeforeUnmount(() => {
 .album-info { position: absolute; z-index: 2; right: 0; bottom: 0; left: 0; padding: 50px 13px 12px; background: linear-gradient(180deg, transparent, rgba(7,9,12,.82) 46%, rgba(7,9,12,.94)); }
 .album-info p { margin: 0; color: rgba(255,255,255,.82); font-size: 10px; font-weight: 600; }
 .album-info h2 { max-width: 92%; margin: 3px 0 0; font-size: 18px; line-height: 1.18; letter-spacing: -.055em; }
+.pull-detail-hint { position: absolute; z-index: 4; top: 10px; left: 50%; display: flex; align-items: center; gap: 4px; padding: 5px 9px; color: rgba(255,255,255,.8); border: 1px solid rgba(255,255,255,.22); border-radius: 999px; background: rgba(9,11,14,.26); backdrop-filter: blur(12px); font-size: 9px; font-weight: 650; transform: translateX(-50%) translateY(calc(var(--open-progress, 0) * -12px)); opacity: calc(.66 - var(--open-progress, 0) * .66); transition: opacity .2s ease, transform .2s ease; pointer-events: none; }
+.pull-detail-hint svg { animation: pull-hint 1.5s ease-in-out infinite; }
 .album-bottom { margin-top: 6px; font-size: 10px; font-weight: 700; }
 .movie-status { display: flex; align-items: center; gap: 12px; padding-left: 1px; }
 .rating, .watched { display: inline-flex; align-items: center; gap: 4px; }
@@ -341,6 +388,7 @@ onBeforeUnmount(() => {
 @keyframes success-handle { 0% { transform: translateX(var(--swipe-x)) scale(.84); box-shadow: 0 0 0 0 rgba(131,221,176,.65); } 55% { transform: translateX(var(--swipe-x)) scale(1.16); box-shadow: 0 0 0 9px rgba(131,221,176,0); } 100% { transform: translateX(var(--swipe-x)) scale(1); box-shadow: 0 4px 11px rgba(0,0,0,.18); } }
 @keyframes success-ring { to { stroke-dashoffset: 0; } }
 @keyframes success-check { to { stroke-dashoffset: 0; } }
+@keyframes pull-hint { 0%,100% { transform: translateY(2px); } 50% { transform: translateY(-2px); } }
 @media (prefers-reduced-motion: reduce) { .album-card, .dots i { transition: none; } }
 @media (max-height: 760px) {
   .deck { height: 318px; }
