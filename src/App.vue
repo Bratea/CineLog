@@ -15,7 +15,13 @@ import pixelCards from './assets/pixel-cards.webp'
 import pixelRows from './assets/pixel-rows.webp'
 
 const currentPage = ref('home')
-const movieRecords = ref(movies.map((movie, index) => ({ ...movie, favourite: index === 0 })))
+const sampleRecordDates = ['2026-07-12', '2026-07-13', '2026-07-15', '2026-07-14']
+const movieRecords = ref(movies.map((movie, index) => ({
+  ...movie,
+  favourite: index === 0,
+  recordDate: movie.recordDate || sampleRecordDates[index] || '2026-07-15',
+  releaseDate: movie.releaseDate || sampleRecordDates[index] || '',
+})))
 const activeTab = ref('home')
 const addOpen = ref(false)
 const username = ref(localStorage.getItem('movie-username') || '通通')
@@ -45,6 +51,10 @@ const settingsDirection = ref('forward')
 const avatarUrl = ref(localStorage.getItem('movie-avatar-url') || '')
 const profileBackgroundColor = ref(localStorage.getItem('movie-profile-background') || '#ffffff')
 const avatarRingColor = ref(localStorage.getItem('movie-avatar-ring') || '#cba777')
+const activeProfileColor = ref(null)
+const pendingProfileColor = ref('#ffffff')
+const profileSaveState = ref('idle')
+const profileColorPresets = ['#ffffff', '#e9f1ff', '#eee5f7', '#dff2e7', '#1d1e21', '#6b3fd4', '#b56576', '#2d6b50']
 const tmdbToken = ref(localStorage.getItem('movie-tmdb-token') || '')
 const tmdbApiBase = ref(localStorage.getItem('movie-tmdb-api-base') || 'https://api.themoviedb.org/3')
 const tmdbImageBase = ref(localStorage.getItem('movie-tmdb-image-base') || 'https://image.tmdb.org/t/p')
@@ -74,14 +84,15 @@ const recordClosing = ref(false)
 const libraryWatchFilter = ref('all')
 const librarySortBy = ref(localStorage.getItem('movie-library-sort') || 'release')
 const libraryUnwatchedFirst = ref(localStorage.getItem('movie-library-unwatched-first') !== 'false')
+const libraryDateBasis = ref(localStorage.getItem('movie-library-date-basis') || 'record')
 const libraryMediaType = ref('电影')
 const libraryTagLimit = ref(Number(localStorage.getItem('movie-library-tag-limit')) || 5)
 const libraryDateExpanded = ref(false)
 const libraryMediaMenuOpen = ref(false)
 const librarySearchOpen = ref(false)
-const libraryYearValue = ref(2026)
-const libraryMonthValue = ref(7)
-const selectedLibraryDay = ref(15)
+const libraryYearValue = ref(Number(localStorage.getItem('movie-library-year')) || 2026)
+const libraryMonthValue = ref(Number(localStorage.getItem('movie-library-month')) || 7)
+const selectedLibraryDay = ref(Number(localStorage.getItem('movie-library-day')) || 15)
 const avatarUploadMessage = ref('')
 const librarySearchInput = ref(null)
 
@@ -156,6 +167,7 @@ const libraryWatchStates = computed(() => [
   { value: 'unwatched', label: '未看', count: unwatchedCount.value },
 ])
 const activeLibraryWatchState = computed(() => libraryWatchStates.value.find((state) => state.value === libraryWatchFilter.value) || libraryWatchStates.value[0])
+const selectedLibraryDate = computed(() => `${libraryYearValue.value}-${String(libraryMonthValue.value).padStart(2, '0')}-${String(selectedLibraryDay.value).padStart(2, '0')}`)
 const libraryMovies = computed(() => {
   const keyword = libraryQuery.value.trim().toLocaleLowerCase('zh-CN')
   const filtered = movieRecords.value.filter((movie) => {
@@ -164,7 +176,9 @@ const libraryMovies = computed(() => {
     const matchesGenre = libraryGenre.value === 'all' || movie.meta.split('·').map((genre) => genre.trim()).includes(libraryGenre.value)
     const matchesWatch = libraryWatchFilter.value === 'all' || (libraryWatchFilter.value === 'watched' ? movie.watched : libraryWatchFilter.value === 'unwatched' ? !movie.watched : movie.favourite)
     const matchesMedia = libraryMediaType.value === '电影' || (['动画', '动漫'].includes(libraryMediaType.value) && movie.meta.includes('动画')) || movie.meta.includes(libraryMediaType.value)
-    return matchesQuery && matchesYear && matchesGenre && matchesWatch && matchesMedia
+    const movieDate = libraryDateBasis.value === 'release' ? (movie.releaseDate || movie.release_date) : (movie.recordDate || movie.watchedDate)
+    const matchesDate = movieDate === selectedLibraryDate.value
+    return matchesQuery && matchesYear && matchesGenre && matchesWatch && matchesMedia && matchesDate
   })
   return filtered.sort((a, b) => {
     if (libraryWatchFilter.value === 'all' && libraryUnwatchedFirst.value && a.watched !== b.watched) return Number(a.watched) - Number(b.watched)
@@ -181,6 +195,9 @@ watch(homeDisplayLimit, (value) => localStorage.setItem('movie-home-limit', Stri
 watch(avatarUrl, (value) => localStorage.setItem('movie-avatar-url', value.trim()))
 watch(profileBackgroundColor, (value) => localStorage.setItem('movie-profile-background', value))
 watch(avatarRingColor, (value) => localStorage.setItem('movie-avatar-ring', value))
+watch([username, avatarUrl, profileBackgroundColor, avatarRingColor], () => {
+  if (profileSaveState.value === 'saved') profileSaveState.value = 'dirty'
+})
 watch(tmdbToken, (value) => localStorage.setItem('movie-tmdb-token', value.trim()))
 watch(tmdbApiBase, (value) => localStorage.setItem('movie-tmdb-api-base', value.trim()))
 watch(tmdbImageBase, (value) => localStorage.setItem('movie-tmdb-image-base', value.trim()))
@@ -188,6 +205,10 @@ watch(tmdbNetworkMode, (value) => localStorage.setItem('movie-tmdb-network-mode'
 watch(libraryTagLimit, (value) => localStorage.setItem('movie-library-tag-limit', String(value)))
 watch(librarySortBy, (value) => localStorage.setItem('movie-library-sort', value))
 watch(libraryUnwatchedFirst, (value) => localStorage.setItem('movie-library-unwatched-first', String(value)))
+watch(libraryDateBasis, (value) => localStorage.setItem('movie-library-date-basis', value))
+watch(libraryYearValue, (value) => localStorage.setItem('movie-library-year', String(value)))
+watch(libraryMonthValue, (value) => localStorage.setItem('movie-library-month', String(value)))
+watch(selectedLibraryDay, (value) => localStorage.setItem('movie-library-day', String(value)))
 watch(categorySettings, (value) => localStorage.setItem('movie-category-settings', JSON.stringify(value)), { deep: true })
 watch(libraryMediaTypes, (types) => {
   if (!types.includes(libraryMediaType.value)) libraryMediaType.value = types[0] || '电影'
@@ -345,6 +366,30 @@ function handleAvatarUpload(event) {
     image.src = reader.result
   }
   reader.readAsDataURL(file)
+}
+
+function openProfileColorPicker(type) {
+  if (activeProfileColor.value === type) {
+    activeProfileColor.value = null
+    return
+  }
+  activeProfileColor.value = type
+  pendingProfileColor.value = type === 'background' ? profileBackgroundColor.value : avatarRingColor.value
+}
+
+function confirmProfileColor() {
+  if (activeProfileColor.value === 'background') profileBackgroundColor.value = pendingProfileColor.value
+  if (activeProfileColor.value === 'ring') avatarRingColor.value = pendingProfileColor.value
+  activeProfileColor.value = null
+  profileSaveState.value = 'dirty'
+}
+
+function saveProfileSettings() {
+  localStorage.setItem('movie-username', username.value || '用户')
+  localStorage.setItem('movie-avatar-url', avatarUrl.value.trim())
+  localStorage.setItem('movie-profile-background', profileBackgroundColor.value)
+  localStorage.setItem('movie-avatar-ring', avatarRingColor.value)
+  profileSaveState.value = 'saved'
 }
 
 function showHome() {
@@ -593,6 +638,7 @@ function addTmdbMovie(result) {
     genreIds: result.genre_ids || [],
     watched: addWatched.value,
     watchedDate: addWatched.value ? new Date().toISOString().slice(0, 10) : '',
+    recordDate: new Date().toISOString().slice(0, 10),
     poster: 'tmdb',
     posterText: result.title || result.original_title,
     poster_path: result.poster_path,
@@ -702,7 +748,7 @@ function navigateDetail(direction) {
               <h1>{{ username }}的观影记录</h1>
               <p>把看过的故事，留在这里。</p>
             </div>
-            <button class="avatar-button" aria-label="打开个人设置" @click="openSettings()">
+            <button class="avatar-button" :style="{ '--avatar-ring': avatarRingColor }" aria-label="打开个人设置" @click="openSettings()">
               <img v-if="avatarUrl" :src="avatarUrl" alt="" />
               <span v-else>{{ username.slice(0, 1) }}</span>
             </button>
@@ -760,18 +806,6 @@ function navigateDetail(direction) {
             <div>
               <h1>
                 <RotatingText
-                  :texts="libraryStatusFrames"
-                  :auto="false"
-                  stagger-from="last"
-                  :stagger-duration="0.018"
-                  :initial="{ y: '105%', opacity: 0, filter: 'blur(4px)' }"
-                  :animate="{ y: 0, opacity: 1, filter: 'blur(0px)' }"
-                  :exit="{ y: '-105%', opacity: 0, filter: 'blur(4px)' }"
-                  :transition="{ type: 'spring', damping: 28, stiffness: 360 }"
-                  split-level-class-name="rotating-title__clip"
-                />
-                <span class="library-title-separator">·</span>
-                <RotatingText
                   :texts="libraryMediaFrames"
                   :auto="false"
                   stagger-from="last"
@@ -782,6 +816,20 @@ function navigateDetail(direction) {
                   :transition="{ type: 'spring', damping: 28, stiffness: 360 }"
                   split-level-class-name="rotating-title__clip"
                 />
+                <span class="library-title-separator">·</span>
+                <span class="library-title-status">
+                  <RotatingText
+                    :texts="libraryStatusFrames"
+                    :auto="false"
+                    stagger-from="last"
+                    :stagger-duration="0.018"
+                    :initial="{ y: '105%', opacity: 0, filter: 'blur(4px)' }"
+                    :animate="{ y: 0, opacity: 1, filter: 'blur(0px)' }"
+                    :exit="{ y: '-105%', opacity: 0, filter: 'blur(4px)' }"
+                    :transition="{ type: 'spring', damping: 28, stiffness: 360 }"
+                    split-level-class-name="rotating-title__clip"
+                  />
+                </span>
               </h1>
             </div>
             <div class="library-media-switch">
@@ -861,16 +909,19 @@ function navigateDetail(direction) {
         </div>
       </nav>
 
-      <div v-if="categoryOpen" class="category-backdrop" @click.self="categoryOpen = false">
-        <aside class="category-sheet" aria-label="电影分类面板">
-          <div class="sheet-handle"></div>
-          <header><div><small>{{ libraryMediaType }}分类</small><h2>选择影片类型</h2></div><button aria-label="关闭分类" @click="categoryOpen = false"><X :size="18" /></button></header>
-          <section class="genre-only-section"><h3>常用类型</h3><div class="category-options"><button :class="{ selected: libraryGenre === 'all' }" @click="libraryGenre = 'all'">全部类型</button><button v-for="genre in libraryGenres" :key="genre" :class="{ selected: libraryGenre === genre }" @click="libraryGenre = genre">{{ genre }}</button></div></section>
-          <section class="library-sort-section"><h3>排列方式</h3><div class="library-sort-options"><button :class="{ selected: librarySortBy === 'name' }" @click="librarySortBy = 'name'">名字</button><button :class="{ selected: librarySortBy === 'release' }" @click="librarySortBy = 'release'">发布日期</button><button :class="{ selected: librarySortBy === 'rating' }" @click="librarySortBy = 'rating'">评分</button><button :class="{ selected: librarySortBy === 'personal' }" @click="librarySortBy = 'personal'">个人评分</button></div></section>
-          <button class="unwatched-priority-button" :class="{ selected: libraryUnwatchedFirst }" @click="libraryUnwatchedFirst = !libraryUnwatchedFirst"><span><strong>未观看优先</strong><small>“全部”列表中优先展示未观看内容</small></span><i><Check :size="13" /></i></button>
-          <button class="category-done" @click="categoryOpen = false">完成</button>
-        </aside>
-      </div>
+      <Transition name="category-modal">
+        <div v-if="categoryOpen" class="category-backdrop" @click.self="categoryOpen = false">
+          <aside class="category-sheet" aria-label="电影分类面板">
+            <div class="sheet-handle"></div>
+            <header><div><small>{{ libraryMediaType }}分类</small><h2>选择影片类型</h2></div><button aria-label="关闭分类" @click="categoryOpen = false"><X :size="18" /></button></header>
+            <section class="genre-only-section"><h3>常用类型</h3><div class="category-options"><button :class="{ selected: libraryGenre === 'all' }" @click="libraryGenre = 'all'">全部类型</button><button v-for="genre in libraryGenres" :key="genre" :class="{ selected: libraryGenre === genre }" @click="libraryGenre = genre">{{ genre }}</button></div></section>
+            <section class="library-sort-section"><h3>排列方式</h3><div class="library-sort-options"><button :class="{ selected: librarySortBy === 'name' }" @click="librarySortBy = 'name'">名字</button><button :class="{ selected: librarySortBy === 'release' }" @click="librarySortBy = 'release'">发布日期</button><button :class="{ selected: librarySortBy === 'rating' }" @click="librarySortBy = 'rating'">评分</button><button :class="{ selected: librarySortBy === 'personal' }" @click="librarySortBy = 'personal'">个人评分</button></div></section>
+            <section class="library-date-basis"><h3>日期依据</h3><div class="library-sort-options"><button :class="{ selected: libraryDateBasis === 'record' }" @click="libraryDateBasis = 'record'">记录日期</button><button :class="{ selected: libraryDateBasis === 'release' }" @click="libraryDateBasis = 'release'">发布日期</button></div></section>
+            <button class="unwatched-priority-button" :class="{ selected: libraryUnwatchedFirst }" @click="libraryUnwatchedFirst = !libraryUnwatchedFirst"><span><strong>未观看优先</strong><small>“全部”列表中优先展示未观看内容</small></span><i><Check :size="13" /></i></button>
+            <button class="category-done" @click="categoryOpen = false">完成</button>
+          </aside>
+        </div>
+      </Transition>
 
       <div v-if="addOpen && (currentPage === 'home' || currentPage === 'library')" class="sheet-backdrop" :class="{ 'is-recording': recordExpanded, 'is-closing': recordClosing }" @click.self="closeRecordSheet">
         <div class="add-sheet" :class="{ expanded: recordExpanded, closing: recordClosing }" role="dialog" aria-modal="true" aria-label="添加电影记录">
@@ -937,7 +988,7 @@ function navigateDetail(direction) {
               </header>
 
               <template v-if="settingsSection === 'hub'">
-                <button class="profile-card profile-card--link settings-piece" style="--settings-order: 1" @click="openSettingsSection('profile')">
+                <button class="profile-card profile-card--link settings-piece" :style="{ '--settings-order': 1, '--profile-background': profileBackgroundColor, '--profile-ink': profileTextColor, '--avatar-ring': avatarRingColor }" @click="openSettingsSection('profile')">
                   <div class="profile-avatar" :style="{ '--avatar-ring': avatarRingColor }">
                     <img v-if="avatarUrl" :src="avatarUrl" alt="" />
                     <span v-else>{{ username.slice(0, 1) }}</span>
@@ -960,13 +1011,24 @@ function navigateDetail(direction) {
                   <div class="profile-avatar profile-avatar--large"><img v-if="avatarUrl" :src="avatarUrl" alt="" /><span v-else>{{ username.slice(0, 1) }}</span></div>
                   <div class="profile-preview-copy"><strong>{{ username || '未命名用户' }}</strong><span>个人资料预览</span></div>
                   <div class="profile-color-controls" aria-label="个人资料颜色">
-                    <label title="选择资料卡背景色"><span>背景</span><i :style="{ background: profileBackgroundColor }"><input v-model="profileBackgroundColor" type="color" aria-label="资料卡背景色" /></i></label>
-                    <label title="选择头像圆圈颜色"><span>头像圈</span><i :style="{ background: avatarRingColor }"><input v-model="avatarRingColor" type="color" aria-label="头像圆圈颜色" /></i></label>
+                    <button type="button" :aria-expanded="activeProfileColor === 'background'" aria-label="选择资料卡背景色" @click="openProfileColorPicker('background')"><span>背景</span><i :style="{ background: profileBackgroundColor }"></i></button>
+                    <button type="button" :aria-expanded="activeProfileColor === 'ring'" aria-label="选择头像圆圈颜色" @click="openProfileColorPicker('ring')"><span>头像圈</span><i :style="{ background: avatarRingColor }"></i></button>
                   </div>
                 </div>
+                <Transition name="profile-color-panel">
+                  <section v-if="activeProfileColor" class="profile-color-panel settings-piece" style="--settings-order: 1">
+                    <header><div><strong>{{ activeProfileColor === 'background' ? '资料卡背景色' : '头像圆圈颜色' }}</strong><span>选择预设色，或使用自定义颜色</span></div><button type="button" aria-label="关闭颜色选择" @click="activeProfileColor = null"><X :size="15" /></button></header>
+                    <div class="profile-color-palette">
+                      <button v-for="color in profileColorPresets" :key="color" type="button" :class="{ selected: pendingProfileColor === color }" :style="{ '--swatch': color }" :aria-label="`选择颜色 ${color}`" @click="pendingProfileColor = color"><i></i></button>
+                    </div>
+                    <label class="profile-custom-color"><span>自定义</span><input v-model="pendingProfileColor" type="color" aria-label="自定义资料颜色" /><code>{{ pendingProfileColor.toUpperCase() }}</code></label>
+                    <footer><button type="button" @click="activeProfileColor = null">取消</button><button type="button" @click="confirmProfileColor"><Check :size="14" />确认颜色</button></footer>
+                  </section>
+                </Transition>
                 <div class="settings-group settings-piece" style="--settings-order: 2"><label for="username">名称</label><input id="username" v-model.trim="username" maxlength="10" placeholder="输入你的名字" /><small>首页将显示“{{ username || '用户' }}的观影记录”。</small></div>
                 <div class="settings-group settings-piece" style="--settings-order: 3"><label>本地头像</label><label class="avatar-upload"><i><Upload :size="18" /></i><span><strong>选择本地图片</strong><em>支持 JPG、PNG，自动居中裁剪</em></span><b>浏览</b><input type="file" accept="image/*" aria-label="选择本地头像图片" @change="handleAvatarUpload" /></label><small class="avatar-upload-status">{{ avatarUploadMessage || '图片会压缩为 256 × 256，并只保存在当前浏览器。' }}</small></div>
                 <div class="settings-group settings-piece" style="--settings-order: 4"><label for="avatar-url">或使用图片地址</label><input id="avatar-url" v-model.trim="avatarUrlInput" inputmode="url" :placeholder="avatarUrl.startsWith('data:') ? '正在使用本地头像，输入网址可替换' : 'https://example.com/avatar.jpg'" /><small>{{ avatarUrl.startsWith('data:') ? '当前使用本地头像，图片数据已隐藏。' : '留空时显示名称首字。' }}</small></div>
+                <button class="profile-save-button settings-piece" :class="{ saved: profileSaveState === 'saved' }" style="--settings-order: 5" @click="saveProfileSettings"><Check :size="18" /><span><strong>{{ profileSaveState === 'saved' ? '个人信息已保存' : '保存个人信息' }}</strong><small>{{ profileSaveState === 'saved' ? '颜色、头像与名称已同步' : '保存颜色、头像和名称设置' }}</small></span></button>
               </template>
 
               <template v-else-if="settingsSection === 'home'">
