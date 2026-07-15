@@ -1,5 +1,5 @@
 <script setup>
-import { onBeforeUnmount, ref } from 'vue'
+import { nextTick, onBeforeUnmount, ref } from 'vue'
 import { GripVertical, Plus, X } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -11,6 +11,9 @@ const emit = defineEmits(['update:categories'])
 const activeId = ref(props.categories[0]?.id || '')
 const newCategoryName = ref('')
 const dragState = ref(null)
+const selectedChildId = ref('')
+const addOpen = ref(false)
+const addInput = ref(null)
 let holdTimer
 let pendingHold
 
@@ -22,7 +25,23 @@ function cloneCategories() {
 }
 
 function setActive(id) {
-  if (!dragState.value) activeId.value = id
+  if (!dragState.value) {
+    activeId.value = id
+    selectedChildId.value = ''
+    addOpen.value = false
+  }
+}
+
+async function toggleAdd() {
+  addOpen.value = !addOpen.value
+  if (addOpen.value) {
+    await nextTick()
+    addInput.value?.focus()
+  }
+}
+
+function selectChild(id) {
+  if (!dragState.value) selectedChildId.value = id
 }
 
 function addCategory() {
@@ -31,8 +50,11 @@ function addCategory() {
   const categories = cloneCategories()
   const active = categories.find((category) => category.id === activeId.value)
   if (!active || active.children.some((child) => child.label === label)) return
-  active.children.push({ id: `custom-${Date.now()}`, label, source: 'custom' })
+  const childId = `custom-${Date.now()}`
+  active.children.push({ id: childId, label, source: 'custom' })
   newCategoryName.value = ''
+  selectedChildId.value = childId
+  addOpen.value = false
   emit('update:categories', categories)
 }
 
@@ -41,6 +63,7 @@ function removeCategory(childId) {
   const active = categories.find((category) => category.id === activeId.value)
   if (!active) return
   active.children = active.children.filter((child) => child.id !== childId)
+  if (selectedChildId.value === childId) selectedChildId.value = ''
   emit('update:categories', categories)
 }
 
@@ -107,23 +130,26 @@ onBeforeUnmount(() => clearTimeout(holdTimer))
       <span>点按切换，长按后拖动调整显示顺序</span>
     </div>
 
-    <div class="category-parent-list" role="tablist" aria-label="大分类">
-      <button
-        v-for="category in categories"
-        :key="category.id"
-        :data-drag-id="category.id"
-        data-drag-type="parent"
-        :class="{ selected: activeId === category.id, dragging: dragState?.type === 'parent' && dragState?.id === category.id }"
-        role="tab"
-        :aria-selected="activeId === category.id"
-        @click="setActive(category.id)"
-        @pointerdown="startHold($event, 'parent', category.id)"
-        @pointermove="cancelHold"
-        @pointerleave="!dragState && endHold()"
-      >
-        <GripVertical :size="13" />
-        <span>{{ category.label }}</span>
-      </button>
+    <div class="category-parent-bar">
+      <div class="category-parent-list" role="tablist" aria-label="大分类">
+        <button
+          v-for="category in categories"
+          :key="category.id"
+          :data-drag-id="category.id"
+          data-drag-type="parent"
+          :class="{ selected: activeId === category.id, dragging: dragState?.type === 'parent' && dragState?.id === category.id }"
+          role="tab"
+          :aria-selected="activeId === category.id"
+          @click="setActive(category.id)"
+          @pointerdown="startHold($event, 'parent', category.id)"
+          @pointermove="cancelHold"
+          @pointerleave="!dragState && endHold()"
+        >
+          <GripVertical :size="13" />
+          <span>{{ category.label }}</span>
+        </button>
+      </div>
+      <button class="category-add-toggle" :class="{ open: addOpen }" type="button" aria-label="添加分类" :aria-expanded="addOpen" @click="toggleAdd"><Plus :size="18" /></button>
     </div>
 
     <section v-for="category in categories" v-show="activeId === category.id" :key="category.id" class="category-child-section">
@@ -137,7 +163,8 @@ onBeforeUnmount(() => clearTimeout(holdTimer))
           :key="child.id"
           :data-drag-id="child.id"
           data-drag-type="child"
-          :class="{ dragging: dragState?.type === 'child' && dragState?.id === child.id }"
+          :class="{ selected: selectedChildId === child.id, dragging: dragState?.type === 'child' && dragState?.id === child.id }"
+          @click="selectChild(child.id)"
           @pointerdown="startHold($event, 'child', child.id)"
           @pointermove="cancelHold"
           @pointerleave="!dragState && endHold()"
@@ -150,9 +177,11 @@ onBeforeUnmount(() => clearTimeout(holdTimer))
       </div>
     </section>
 
-    <form class="category-add-form" @submit.prevent="addCategory">
-      <input v-model="newCategoryName" maxlength="12" :placeholder="`添加${categories.find((item) => item.id === activeId)?.label || ''}分类`" aria-label="自定义分类名称" />
-      <button type="submit" :disabled="!newCategoryName.trim()"><Plus :size="16" />添加</button>
-    </form>
+    <Transition name="category-add">
+      <form v-if="addOpen" class="category-add-form" @submit.prevent="addCategory">
+        <input ref="addInput" v-model="newCategoryName" maxlength="12" :placeholder="`添加${categories.find((item) => item.id === activeId)?.label || ''}分类`" aria-label="自定义分类名称" />
+        <button type="submit" :disabled="!newCategoryName.trim()"><Plus :size="16" />添加</button>
+      </form>
+    </Transition>
   </div>
 </template>

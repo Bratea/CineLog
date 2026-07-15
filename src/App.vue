@@ -124,21 +124,16 @@ const surfacePage = computed(() => currentPage.value === 'detail' ? detailOrigin
 const libraryYears = computed(() => [...new Set(movieRecords.value.map((movie) => movie.year))].sort().reverse())
 const libraryMediaTypes = computed(() => categorySettings.value.map((category) => category.label))
 const libraryGenres = computed(() => categorySettings.value.find((category) => category.label === libraryMediaType.value)?.children?.map((child) => child.label) || [])
-const visibleMediaTypes = computed(() => libraryMediaTypes.value.slice(0, Math.max(1, libraryTagLimit.value)))
-const libraryDateItems = computed(() => [
-  { day: 11, week: '六' }, { day: 12, week: '日' }, { day: 13, week: '一' }, { day: 14, week: '二' },
-  { day: 15, week: '三' }, { day: 16, week: '四' }, { day: 17, week: '五' },
-])
+const visibleLibraryGenres = computed(() => ['all', ...libraryGenres.value].slice(0, Math.max(1, libraryTagLimit.value)))
+const libraryDateItems = computed(() => Array.from({ length: 31 }, (_, index) => ({ day: index + 1 })))
 const activeCategoryLabel = computed(() => {
   if (libraryGenre.value !== 'all') return libraryGenre.value
   if (libraryYear.value !== 'all') return `${libraryYear.value} 年`
   return '全部电影'
 })
-const librarySectionTitle = computed(() => {
-  const status = ({ all: '全部', watched: '已观看', unwatched: '未观看', favourite: '收藏' })[libraryWatchFilter.value]
-  return `${status} · ${libraryMediaType.value}`
-})
-const libraryTitleFrames = computed(() => [librarySectionTitle.value])
+const libraryStatusTitle = computed(() => ({ all: '全部', watched: '已观看', unwatched: '未观看', favourite: '收藏' })[libraryWatchFilter.value])
+const libraryStatusFrames = computed(() => [libraryStatusTitle.value])
+const libraryMediaFrames = computed(() => [libraryMediaType.value])
 const libraryMovies = computed(() => {
   const keyword = libraryQuery.value.trim().toLocaleLowerCase('zh-CN')
   return movieRecords.value.filter((movie) => {
@@ -163,6 +158,10 @@ watch(libraryTagLimit, (value) => localStorage.setItem('movie-library-tag-limit'
 watch(categorySettings, (value) => localStorage.setItem('movie-category-settings', JSON.stringify(value)), { deep: true })
 watch(libraryMediaTypes, (types) => {
   if (!types.includes(libraryMediaType.value)) libraryMediaType.value = types[0] || '电影'
+})
+watch(libraryMediaType, () => {
+  libraryGenre.value = 'all'
+  libraryMediaMenuOpen.value = false
 })
 
 function setWatchStat(value) {
@@ -312,6 +311,8 @@ function handleAvatarUpload(event) {
 
 function showHome() {
   if (currentPage.value === 'home') return
+  libraryDateExpanded.value = false
+  libraryMediaMenuOpen.value = false
   transitionDirection.value = 'back'
   activeTab.value = 'home'
   currentPage.value = 'home'
@@ -322,6 +323,11 @@ function showLibrary() {
   transitionDirection.value = 'forward'
   activeTab.value = 'list'
   currentPage.value = 'library'
+}
+
+function dismissLibraryPopovers(event) {
+  if (libraryDateExpanded.value && !event.target.closest('.date-dock')) libraryDateExpanded.value = false
+  if (libraryMediaMenuOpen.value && !event.target.closest('.library-media-switch')) libraryMediaMenuOpen.value = false
 }
 
 function surfacePointerDown(event) {
@@ -701,12 +707,24 @@ function navigateDetail(direction) {
         </section>
         </section>
 
-        <section v-else-if="surfacePage === 'library'" key="library" class="surface-view library-surface" :class="{ 'is-surface-dragging': surfaceDragging }" :style="{ '--surface-drag': `${surfaceDragX}px` }" aria-label="电影列表页面" @pointerdown="surfacePointerDown" @pointermove="surfacePointerMove" @pointerup="surfacePointerUp" @pointercancel="surfacePointerUp">
+        <section v-else-if="surfacePage === 'library'" key="library" class="surface-view library-surface" :class="{ 'is-surface-dragging': surfaceDragging }" :style="{ '--surface-drag': `${surfaceDragX}px` }" aria-label="电影列表页面" @click="dismissLibraryPopovers" @pointerdown="surfacePointerDown" @pointermove="surfacePointerMove" @pointerup="surfacePointerUp" @pointercancel="surfacePointerUp">
           <header class="library-header surface-piece" style="--piece-order: 0">
             <div>
               <h1>
                 <RotatingText
-                  :texts="libraryTitleFrames"
+                  :texts="libraryStatusFrames"
+                  :auto="false"
+                  stagger-from="last"
+                  :stagger-duration="0.018"
+                  :initial="{ y: '105%', opacity: 0, filter: 'blur(4px)' }"
+                  :animate="{ y: 0, opacity: 1, filter: 'blur(0px)' }"
+                  :exit="{ y: '-105%', opacity: 0, filter: 'blur(4px)' }"
+                  :transition="{ type: 'spring', damping: 28, stiffness: 360 }"
+                  split-level-class-name="rotating-title__clip"
+                />
+                <span class="library-title-separator">·</span>
+                <RotatingText
+                  :texts="libraryMediaFrames"
                   :auto="false"
                   stagger-from="last"
                   :stagger-duration="0.018"
@@ -736,29 +754,32 @@ function navigateDetail(direction) {
           <div class="library-filter-bar surface-piece" style="--piece-order: 2" role="group" aria-label="片库快捷筛选">
             <div class="library-chip-scroll">
               <button class="library-search-chip" :class="{ selected: librarySearchOpen }" aria-label="打开搜索" @click="toggleLibrarySearch"><Search :size="13" /></button>
-              <button v-for="type in visibleMediaTypes" :key="type" :class="{ selected: libraryMediaType === type }" @click="libraryMediaType = type">{{ type }}</button>
+              <button v-for="genre in visibleLibraryGenres" :key="genre" :class="{ selected: libraryGenre === genre }" @click="libraryGenre = genre">{{ genre === 'all' ? '全部类型' : genre }}</button>
             </div>
-            <button class="category-chip" aria-label="打开更多分类" @click="categoryOpen = true"><SlidersHorizontal :size="14" /><span>分类</span></button>
+            <button class="category-chip" aria-label="打开更多分类" @click="categoryOpen = true"><small>更多</small><strong>分类</strong><ChevronRight :size="13" /></button>
           </div>
 
           <div class="library-timeline surface-piece" :class="{ searching: librarySearchOpen }" style="--piece-order: 3">
             <aside class="date-dock" :class="{ expanded: libraryDateExpanded }" aria-label="日期选择">
               <button class="date-dock__toggle" :aria-expanded="libraryDateExpanded" @click="libraryDateExpanded = !libraryDateExpanded"><small>{{ libraryYearValue }}</small><strong>{{ libraryMonthValue }}/{{ selectedLibraryDay }}</strong><ChevronRight :size="13" /></button>
               <div class="date-dock__options">
-                <div><button v-for="year in [2025, 2026, 2027]" :key="year" :class="{ selected: libraryYearValue === year }" @click="libraryYearValue = year">{{ year }}</button></div>
-                <div><button v-for="month in [5, 6, 7, 8, 9, 10]" :key="month" :class="{ selected: libraryMonthValue === month }" @click="libraryMonthValue = month">{{ month }}月</button></div>
-                <div><button v-for="date in libraryDateItems" :key="date.day" :class="{ selected: selectedLibraryDay === date.day }" @click="selectedLibraryDay = date.day; libraryDateExpanded = false">{{ date.day }}</button></div>
+                <div class="date-option-row"><span>年份</span><div><button v-for="year in [2024, 2025, 2026, 2027, 2028]" :key="year" :class="{ selected: libraryYearValue === year }" @click="libraryYearValue = year">{{ year }}</button></div></div>
+                <div class="date-option-row"><span>月份</span><div><button v-for="month in 12" :key="month" :class="{ selected: libraryMonthValue === month }" @click="libraryMonthValue = month">{{ month }}月</button></div></div>
+                <div class="date-option-row"><span>日期</span><div><button v-for="date in libraryDateItems" :key="date.day" :class="{ selected: selectedLibraryDay === date.day }" @click="selectedLibraryDay = date.day; libraryDateExpanded = false">{{ date.day }}</button></div></div>
               </div>
             </aside>
             <div class="library-status-stack" role="group" aria-label="观看状态筛选">
-              <button class="watched-status" :class="{ selected: libraryWatchFilter === 'watched' }" @click="libraryWatchFilter = libraryWatchFilter === 'watched' ? 'all' : 'watched'">
-                <span>已观看</span>
-                <Transition name="count-pop" mode="out-in"><strong :key="`watched-${libraryWatchFilter}-${watchedCount}`">{{ watchedCount }}</strong></Transition>
+              <button class="all-status" :class="{ selected: libraryWatchFilter === 'all' }" @click="libraryWatchFilter = 'all'">
+                <span>全部</span><strong>{{ movieRecords.length }}</strong>
               </button>
-              <button class="unwatched-status" :class="{ selected: libraryWatchFilter === 'unwatched' }" @click="libraryWatchFilter = libraryWatchFilter === 'unwatched' ? 'all' : 'unwatched'">
-                <span>未观看</span>
-                <Transition name="count-pop" mode="out-in"><strong :key="`unwatched-${libraryWatchFilter}-${unwatchedCount}`">{{ unwatchedCount }}</strong></Transition>
-              </button>
+              <div class="watch-status-combo">
+                <button class="watched-status" :class="{ selected: libraryWatchFilter === 'watched' }" @click="libraryWatchFilter = 'watched'">
+                  <span>已看</span><Transition name="count-pop" mode="out-in"><strong :key="`watched-${libraryWatchFilter}-${watchedCount}`">{{ watchedCount }}</strong></Transition>
+                </button>
+                <button class="unwatched-status" :class="{ selected: libraryWatchFilter === 'unwatched' }" @click="libraryWatchFilter = 'unwatched'">
+                  <span>未看</span><Transition name="count-pop" mode="out-in"><strong :key="`unwatched-${libraryWatchFilter}-${unwatchedCount}`">{{ unwatchedCount }}</strong></Transition>
+                </button>
+              </div>
             </div>
             <div class="library-list" aria-live="polite">
             <article v-for="(movie, index) in libraryMovies" :key="movie.id" class="library-row" :class="{ expanded: expandedLibraryId === movie.id }" :style="{ '--row-order': index, '--row-tint': movieTone(movie) }">
@@ -800,9 +821,8 @@ function navigateDetail(direction) {
       <div v-if="categoryOpen" class="category-backdrop" @click.self="categoryOpen = false">
         <aside class="category-sheet" aria-label="电影分类面板">
           <div class="sheet-handle"></div>
-          <header><div><small>更多分类</small><h2>选择内容与类型</h2></div><button aria-label="关闭分类" @click="categoryOpen = false"><X :size="18" /></button></header>
-          <section><h3>内容形式</h3><div class="category-options"><button v-for="type in libraryMediaTypes" :key="type" :class="{ selected: libraryMediaType === type }" @click="libraryMediaType = type">{{ type }}</button></div></section>
-          <section><h3>主要类型</h3><div class="category-options"><button :class="{ selected: libraryGenre === 'all' }" @click="libraryGenre = 'all'">全部类型</button><button v-for="genre in libraryGenres" :key="genre" :class="{ selected: libraryGenre === genre }" @click="libraryGenre = genre">{{ genre }}</button></div></section>
+          <header><div><small>{{ libraryMediaType }}分类</small><h2>选择影片类型</h2></div><button aria-label="关闭分类" @click="categoryOpen = false"><X :size="18" /></button></header>
+          <section class="genre-only-section"><h3>常用类型</h3><div class="category-options"><button :class="{ selected: libraryGenre === 'all' }" @click="libraryGenre = 'all'">全部类型</button><button v-for="genre in libraryGenres" :key="genre" :class="{ selected: libraryGenre === genre }" @click="libraryGenre = genre">{{ genre }}</button></div></section>
           <button class="category-done" @click="categoryOpen = false">完成</button>
         </aside>
       </div>
