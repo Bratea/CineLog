@@ -115,8 +115,6 @@ const addMediaMenuOpen = ref(false)
 const addWatched = ref(false)
 const addWatchedDate = ref(new Date().toISOString().slice(0, 10))
 const addDatePickerOpen = ref(false)
-const addDateViewYear = ref(new Date().getFullYear())
-const addDateViewMonth = ref(new Date().getMonth())
 const addRating = ref(0)
 const addReview = ref('')
 const overviewExpanded = ref(false)
@@ -199,24 +197,7 @@ let homeNoticeTimer
 
 const watchedCount = computed(() => movieRecords.value.filter((movie) => movie.watched).length)
 const displayedTmdbResults = computed(() => tmdbResults.value.slice(0, tmdbVisibleCount.value))
-const addDateTitle = computed(() => `${addDateViewYear.value}年${String(addDateViewMonth.value + 1).padStart(2, '0')}月`)
 const addWatchedDateLabel = computed(() => addWatchedDate.value ? addWatchedDate.value.replaceAll('-', ' / ') : '选择日期')
-const addDateCalendarDays = computed(() => {
-  const monthStart = new Date(addDateViewYear.value, addDateViewMonth.value, 1)
-  const gridStart = new Date(addDateViewYear.value, addDateViewMonth.value, 1 - monthStart.getDay())
-  const today = formatLocalDate(new Date())
-  return Array.from({ length: 42 }, (_, index) => {
-    const date = new Date(gridStart)
-    date.setDate(gridStart.getDate() + index)
-    const value = formatLocalDate(date)
-    return {
-      value,
-      day: date.getDate(),
-      currentMonth: date.getMonth() === addDateViewMonth.value,
-      today: value === today,
-    }
-  })
-})
 const avatarUrlInput = computed({
   get: () => avatarUrl.value.startsWith('data:') ? '' : avatarUrl.value,
   set: (value) => { avatarUrl.value = value },
@@ -867,42 +848,9 @@ function chooseAddMediaType(type) {
   addMediaMenuOpen.value = false
 }
 
-function formatLocalDate(date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
-
-function syncAddDateView() {
-  const date = addWatchedDate.value ? new Date(`${addWatchedDate.value}T00:00:00`) : new Date()
-  addDateViewYear.value = date.getFullYear()
-  addDateViewMonth.value = date.getMonth()
-}
-
 function toggleWatchedDatePicker() {
   addDatePickerOpen.value = !addDatePickerOpen.value
-  if (addDatePickerOpen.value) {
-    addMediaMenuOpen.value = false
-    syncAddDateView()
-  }
-}
-
-function moveAddDateMonth(offset) {
-  const date = new Date(addDateViewYear.value, addDateViewMonth.value + offset, 1)
-  addDateViewYear.value = date.getFullYear()
-  addDateViewMonth.value = date.getMonth()
-}
-
-function selectAddWatchedDate(value) {
-  addWatchedDate.value = value
-  addDatePickerOpen.value = false
-}
-
-function selectAddWatchedToday() {
-  selectAddWatchedDate(formatLocalDate(new Date()))
-}
-
-function clearAddWatchedDate() {
-  addWatchedDate.value = ''
-  addDatePickerOpen.value = false
+  if (addDatePickerOpen.value) addMediaMenuOpen.value = false
 }
 
 function handleAddWatchedChange() {
