@@ -3,7 +3,10 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ArrowLeft, Check, Flame, Heart, Pencil, Star } from 'lucide-vue-next'
 import cinematicAnimeCollage from '../assets/cinematic-anime-collage.png'
 
-const props = defineProps({ movie: { type: Object, required: true } })
+const props = defineProps({
+  movie: { type: Object, required: true },
+  entryMode: { type: String, default: 'home' },
+})
 const emit = defineEmits(['back', 'navigate', 'update-watched'])
 const liked = ref(false)
 const scrollProgress = ref(0)
@@ -112,7 +115,7 @@ onBeforeUnmount(() => window.clearTimeout(switchTimer))
 <template>
   <article
     class="movie-detail"
-    :class="[`movie-detail--${movie.poster}`, { 'is-swipe-dragging': isSwipeDragging, 'has-swipe-transition': swipeTransition, 'is-switching': isSwitching }]"
+    :class="[`movie-detail--${movie.poster}`, `entry-${entryMode}`, { 'is-swipe-dragging': isSwipeDragging, 'has-swipe-transition': swipeTransition, 'is-switching': isSwitching }]"
     :style="detailMotionStyle"
     @pointerdown="detailPointerDown"
     @pointermove="detailPointerMove"
@@ -171,6 +174,7 @@ onBeforeUnmount(() => window.clearTimeout(switchTimer))
 <style scoped lang="scss">
 .movie-detail { --accent: #f0a05b; --screen: #0a0e10; --swipe-x: 0px; position: absolute; z-index: 12; inset: 0; overflow: hidden; color: #f6f0e9; background: var(--screen); touch-action:pan-y; translate:var(--swipe-x) 0; transform-origin:50% 28%; will-change:translate,transform,clip-path; animation:detail-unfold .66s cubic-bezier(.18,.88,.2,1) both; }
 .movie-detail.has-swipe-transition { transition:translate .36s cubic-bezier(.18,.86,.2,1), opacity .24s ease; }
+.movie-detail.entry-list { animation:detail-list-in .58s cubic-bezier(.18,.88,.2,1) both; }
 .movie-detail.is-swipe-dragging { transition:none; }
 .movie-detail.is-switching { opacity:.92; }
 .movie-detail--pop { --accent: #efaa74; }.movie-detail--crayon { --accent: #ffd06c; }.movie-detail--coco { --accent: #df9e72; }
@@ -204,5 +208,6 @@ onBeforeUnmount(() => window.clearTimeout(switchTimer))
 @keyframes backdrop-open { from { background-position:center 34%; transform:scale(1.13) translateY(-16px); filter:saturate(1.1); } to { background-position:center 24%; transform:scale(calc(1.04 + var(--scroll) * .035)) translateY(calc(var(--scroll) * -18px)); filter:saturate(1); } }
 @keyframes detail-copy-in { from { opacity:0; transform:translateY(-24px); } to { opacity:1; transform:translateY(0); } }
 @keyframes swipe-hint-in { from { opacity:0; transform:translateX(-50%) translateY(-5px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
+@keyframes detail-list-in { from { opacity:.35; transform:scale(1.018); } to { opacity:1; transform:scale(1); } }
 @media(max-height:760px){.detail-hero-copy{min-height:510px}}@media(prefers-reduced-motion:reduce){.movie-detail,.detail-backdrop,.detail-hero-copy{animation:none}.detail-backdrop,.switch-thumb{transition:none}}
 </style>
