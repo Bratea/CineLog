@@ -1,6 +1,6 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
-import { ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, ExternalLink, House, Search, Settings2, SlidersHorizontal, Star, Upload, X } from 'lucide-vue-next'
+import { computed, nextTick, ref, watch } from 'vue'
+import { ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, ExternalLink, House, Search, SlidersHorizontal, Star, Upload, X } from 'lucide-vue-next'
 import MovieCarousel from './components/MovieCarousel.vue'
 import MovieList from './components/MovieList.vue'
 import MovieDetail from './components/MovieDetail.vue'
@@ -54,12 +54,18 @@ const tmdbResults = ref([])
 const tmdbSearchState = ref('idle')
 const tmdbSearchMessage = ref('')
 const tmdbSearchLastQuery = ref('')
+const selectedTmdbResult = ref(null)
+const addMediaType = ref('电影')
+const addWatched = ref(false)
+const addRating = ref(0)
+const addReview = ref('')
 const recordClosing = ref(false)
 const libraryWatchFilter = ref('all')
 const libraryMediaType = ref('电影')
 const libraryTagLimit = ref(Number(localStorage.getItem('movie-library-tag-limit')) || 5)
-const librarySettingsOpen = ref(false)
-const libraryDateMenu = ref(null)
+const libraryDateExpanded = ref(false)
+const libraryMediaMenuOpen = ref(false)
+const librarySearchOpen = ref(false)
 const libraryYearValue = ref(2026)
 const libraryMonthValue = ref(7)
 const selectedLibraryDay = ref(15)
@@ -345,12 +351,23 @@ function toggleLibraryMovie(id) {
   expandedLibraryId.value = expandedLibraryId.value === id ? null : id
 }
 
+async function toggleLibrarySearch() {
+  librarySearchOpen.value = !librarySearchOpen.value
+  if (librarySearchOpen.value) {
+    await nextTick()
+    librarySearchInput.value?.focus()
+  } else {
+    libraryQuery.value = ''
+  }
+}
+
 function closeRecordSheet() {
   if (recordClosing.value) return
   recordClosing.value = true
   window.setTimeout(() => {
     addOpen.value = false
     recordExpanded.value = false
+    selectedTmdbResult.value = null
     recordClosing.value = false
   }, recordExpanded.value ? 560 : 320)
 }
@@ -380,6 +397,7 @@ async function searchTmdb() {
   }
   tmdbSearchState.value = 'loading'
   tmdbSearchMessage.value = ''
+  selectedTmdbResult.value = null
   tmdbSearchLastQuery.value = query
   try {
     const base = tmdbApiBase.value.trim().replace(/\/$/, '')
@@ -397,6 +415,18 @@ async function searchTmdb() {
   }
 }
 
+function viewTmdbResult(result) {
+  if (selectedTmdbResult.value?.id === result.id) {
+    selectedTmdbResult.value = null
+    return
+  }
+  selectedTmdbResult.value = result
+  addMediaType.value = '电影'
+  addWatched.value = false
+  addRating.value = 0
+  addReview.value = ''
+}
+
 function addTmdbMovie(result) {
   if (movieRecords.value.some((movie) => String(movie.id) === `tmdb-${result.id}`)) {
     tmdbSearchMessage.value = '这部电影已经在记录中了。'
@@ -406,19 +436,21 @@ function addTmdbMovie(result) {
     id: `tmdb-${result.id}`,
     title: result.title || result.original_title,
     originalTitle: result.original_title || result.title,
-    meta: 'TMDB 电影',
+    meta: `TMDB · ${addMediaType.value}`,
     year: result.release_date?.slice(0, 4) || '待定',
-    rating: result.vote_average ? Number(result.vote_average.toFixed(1)) : null,
-    watched: false,
+    rating: addWatched.value && addRating.value ? addRating.value : (result.vote_average ? Number(result.vote_average.toFixed(1)) : null),
+    personalRating: addWatched.value && addRating.value ? addRating.value : null,
+    watched: addWatched.value,
     poster: 'tmdb',
     posterText: result.title || result.original_title,
     poster_path: result.poster_path,
     backdrop_path: result.backdrop_path,
     overview: result.overview || '暂无剧情简介。',
-    feeling: '刚刚加入待看清单。',
+    feeling: addWatched.value ? (addReview.value.trim() || '已观看，暂时没有写下评价。') : '刚刚加入待看清单。',
   })
-  activeWatchStat.value = 'unwatched'
-  tmdbSearchMessage.value = `已将《${result.title || result.original_title}》加入未观看。`
+  activeWatchStat.value = addWatched.value ? 'watched' : 'unwatched'
+  tmdbSearchMessage.value = `已将《${result.title || result.original_title}》加入${addWatched.value ? '已观看' : '未观看'}。`
+  selectedTmdbResult.value = null
 }
 
 function updateWatched(value) {
@@ -503,27 +535,23 @@ function navigateDetail(direction) {
         <section v-else-if="surfacePage === 'library'" key="library" class="surface-view library-surface" :class="{ 'is-surface-dragging': surfaceDragging }" :style="{ '--surface-drag': `${surfaceDragX}px` }" aria-label="电影列表页面" @pointerdown="surfacePointerDown" @pointermove="surfacePointerMove" @pointerup="surfacePointerUp" @pointercancel="surfacePointerUp">
           <header class="library-header surface-piece" style="--piece-order: 0">
             <div>
-              <div class="library-date-selectors">
-                <button @click="libraryDateMenu = libraryDateMenu === 'year' ? null : 'year'">{{ libraryYearValue }} 年 <ChevronDown :size="12" /></button>
-                <button @click="libraryDateMenu = libraryDateMenu === 'month' ? null : 'month'">{{ libraryMonthValue }} 月 <ChevronDown :size="12" /></button>
-                <div v-if="libraryDateMenu" class="library-date-menu">
-                  <button v-for="value in libraryDateMenu === 'year' ? [2025, 2026, 2027] : [5, 6, 7, 8, 9, 10]" :key="value" :class="{ selected: libraryDateMenu === 'year' ? libraryYearValue === value : libraryMonthValue === value }" @click="libraryDateMenu === 'year' ? libraryYearValue = value : libraryMonthValue = value; libraryDateMenu = null">{{ value }}{{ libraryDateMenu === 'year' ? ' 年' : ' 月' }}</button>
-                </div>
-              </div>
               <h1>{{ librarySectionTitle }}</h1>
             </div>
-            <button class="library-settings-button" aria-label="打开列表设置" @click="librarySettingsOpen = true"><Settings2 :size="18" /></button>
+            <div class="library-media-switch">
+              <button aria-label="切换内容显示" :aria-expanded="libraryMediaMenuOpen" @click="libraryMediaMenuOpen = !libraryMediaMenuOpen"><span>{{ libraryMediaType }}</span><ChevronDown :size="13" /></button>
+              <div v-if="libraryMediaMenuOpen" class="library-media-menu"><button v-for="type in libraryMediaTypes" :key="type" :class="{ selected: libraryMediaType === type }" @click="libraryMediaType = type; libraryMediaMenuOpen = false">{{ type }}</button></div>
+            </div>
           </header>
 
-          <label class="search-box surface-piece" style="--piece-order: 1">
-            <Search :size="18" stroke-width="2.2" />
-            <input ref="librarySearchInput" v-model="libraryQuery" type="search" placeholder="搜索观影记录" aria-label="搜索观影记录" />
-            <kbd v-if="!libraryQuery">⌘ K</kbd>
-          </label>
+          <Transition name="search-reveal">
+            <label v-if="librarySearchOpen" class="search-box library-search-reveal surface-piece" style="--piece-order: 1">
+              <Search :size="18" stroke-width="2.2" /><input ref="librarySearchInput" v-model="libraryQuery" type="search" placeholder="搜索观影记录" aria-label="搜索观影记录" /><button type="button" aria-label="关闭搜索" @click.prevent="toggleLibrarySearch"><X :size="15" /></button>
+            </label>
+          </Transition>
 
           <div class="library-filter-bar surface-piece" style="--piece-order: 2" role="group" aria-label="片库快捷筛选">
             <div class="library-chip-scroll">
-              <button class="library-search-chip" aria-label="聚焦搜索" @click="librarySearchInput?.focus()"><Search :size="13" /></button>
+              <button class="library-search-chip" :class="{ selected: librarySearchOpen }" aria-label="打开搜索" @click="toggleLibrarySearch"><Search :size="13" /></button>
               <button :class="{ selected: libraryWatchFilter === 'favourite' }" @click="libraryWatchFilter = libraryWatchFilter === 'favourite' ? 'all' : 'favourite'">收藏</button>
               <button :class="{ selected: libraryWatchFilter === 'watched' }" @click="libraryWatchFilter = libraryWatchFilter === 'watched' ? 'all' : 'watched'">已观看</button>
               <button :class="{ selected: libraryWatchFilter === 'unwatched' }" @click="libraryWatchFilter = libraryWatchFilter === 'unwatched' ? 'all' : 'unwatched'">未观看</button>
@@ -532,10 +560,14 @@ function navigateDetail(direction) {
             <button class="category-chip" aria-label="打开更多分类" @click="categoryOpen = true"><SlidersHorizontal :size="14" /><span>分类</span></button>
           </div>
 
-          <div class="library-timeline surface-piece" style="--piece-order: 3">
-            <aside class="date-rail" aria-label="选择日期">
-              <strong>{{ libraryMonthValue }}月</strong>
-              <button v-for="date in libraryDateItems" :key="date.day" :class="{ selected: selectedLibraryDay === date.day }" @click="selectedLibraryDay = date.day"><span>{{ date.day }}</span><small>{{ date.week }}</small></button>
+          <div class="library-timeline surface-piece" :class="{ searching: librarySearchOpen }" style="--piece-order: 3">
+            <aside class="date-dock" :class="{ expanded: libraryDateExpanded }" aria-label="日期选择">
+              <button class="date-dock__toggle" :aria-expanded="libraryDateExpanded" @click="libraryDateExpanded = !libraryDateExpanded"><small>{{ libraryYearValue }}</small><strong>{{ libraryMonthValue }}/{{ selectedLibraryDay }}</strong><ChevronRight :size="13" /></button>
+              <div class="date-dock__options">
+                <div><button v-for="year in [2025, 2026, 2027]" :key="year" :class="{ selected: libraryYearValue === year }" @click="libraryYearValue = year">{{ year }}</button></div>
+                <div><button v-for="month in [5, 6, 7, 8, 9, 10]" :key="month" :class="{ selected: libraryMonthValue === month }" @click="libraryMonthValue = month">{{ month }}月</button></div>
+                <div><button v-for="date in libraryDateItems" :key="date.day" :class="{ selected: selectedLibraryDay === date.day }" @click="selectedLibraryDay = date.day">{{ date.day }}</button></div>
+              </div>
             </aside>
             <div class="library-list" aria-live="polite">
             <article v-for="(movie, index) in libraryMovies" :key="movie.id" class="library-row" :class="{ expanded: expandedLibraryId === movie.id }" :style="{ '--row-order': index, '--row-tint': movieTone(movie) }">
@@ -584,15 +616,6 @@ function navigateDetail(direction) {
         </aside>
       </div>
 
-      <div v-if="librarySettingsOpen" class="category-backdrop" @click.self="librarySettingsOpen = false">
-        <aside class="category-sheet library-settings-sheet" aria-label="列表设置面板">
-          <div class="sheet-handle"></div>
-          <header><div><small>列表设置</small><h2>分类显示</h2></div><button aria-label="关闭列表设置" @click="librarySettingsOpen = false"><X :size="18" /></button></header>
-          <section><h3>快捷标签数量</h3><div class="tag-limit-options"><button v-for="limit in [5, 7, 9]" :key="limit" :class="{ selected: libraryTagLimit === limit }" @click="libraryTagLimit = limit"><strong>{{ limit }}</strong><span>个标签</span></button></div><p>默认显示 5 个，更多标签可以横向滑动查看。</p></section>
-          <button class="category-done" @click="librarySettingsOpen = false">保存设置</button>
-        </aside>
-      </div>
-
       <div v-if="addOpen && (currentPage === 'home' || currentPage === 'library')" class="sheet-backdrop" :class="{ 'is-recording': recordExpanded, 'is-closing': recordClosing }" @click.self="closeRecordSheet">
         <div class="add-sheet" :class="{ expanded: recordExpanded, closing: recordClosing }" role="dialog" aria-modal="true" aria-label="添加电影记录">
           <div class="sheet-handle"></div>
@@ -607,7 +630,33 @@ function navigateDetail(direction) {
             <div v-if="tmdbSearchMessage" class="record-message" :class="`is-${tmdbSearchState}`">{{ tmdbSearchMessage }}</div>
             <div v-if="tmdbSearchState === 'success' && !tmdbResults.length" class="record-no-results"><Search :size="24" /><strong>没有找到“{{ tmdbSearchLastQuery }}”</strong><span>TMDB 不会自动纠正中文错别字，请检查片名，或尝试原名、英文名。</span></div>
             <div v-if="tmdbResults.length" class="tmdb-results">
-              <article v-for="result in tmdbResults" :key="result.id"><div class="tmdb-result-poster" :style="tmdbPoster(result) ? { backgroundImage: `url(${tmdbPoster(result)})` } : {}"><span v-if="!result.poster_path">暂无封面</span></div><div><small>{{ result.release_date?.slice(0, 4) || '待定' }} · TMDB {{ result.vote_average?.toFixed(1) || '暂无评分' }}</small><strong>{{ result.title || result.original_title }}</strong><p>{{ result.overview || '暂无剧情简介。' }}</p></div><button @click="addTmdbMovie(result)">添加</button></article>
+              <article v-for="result in tmdbResults" :key="result.id" class="tmdb-result-item" :class="{ 'is-open': selectedTmdbResult?.id === result.id }">
+                <div class="tmdb-result-summary">
+                  <div class="tmdb-result-poster" :style="tmdbPoster(result) ? { backgroundImage: `url(${tmdbPoster(result)})` } : {}"><span v-if="!result.poster_path">暂无封面</span></div>
+                  <div class="tmdb-result-copy"><small>{{ result.release_date?.slice(0, 4) || '待定' }} · TMDB {{ result.vote_average?.toFixed(1) || '暂无评分' }}</small><strong>{{ result.title || result.original_title }}</strong><p>{{ result.original_title || '暂无原名' }}</p></div>
+                  <button class="tmdb-view-button" :aria-expanded="selectedTmdbResult?.id === result.id" @click="viewTmdbResult(result)">{{ selectedTmdbResult?.id === result.id ? '收起' : '查看' }}<ChevronDown :size="13" /></button>
+                </div>
+                <Transition name="tmdb-detail">
+                  <div v-if="selectedTmdbResult?.id === result.id" class="tmdb-result-detail">
+                    <section class="tmdb-info-card">
+                      <div class="tmdb-card-title"><span>影片介绍</span><small>{{ result.release_date?.slice(0, 4) || '年份待定' }}</small></div>
+                      <p>{{ result.overview || '暂无剧情简介。' }}</p>
+                    </section>
+                    <section class="tmdb-add-card">
+                      <div class="tmdb-card-title"><span>添加设置</span><small>完善你的记录</small></div>
+                      <label class="tmdb-field"><span>类型</span><select v-model="addMediaType"><option>电影</option><option>电视剧</option><option>动画</option><option>纪录片</option><option>综艺</option></select></label>
+                      <label class="tmdb-watch-toggle"><span><strong>是否已观看</strong><small>{{ addWatched ? '记录评分与观后感' : '加入待看清单' }}</small></span><input v-model="addWatched" type="checkbox" /><i aria-hidden="true"></i></label>
+                      <Transition name="watched-fields">
+                        <div v-if="addWatched" class="tmdb-watched-fields">
+                          <div class="tmdb-rating"><span>个人评分</span><div><button v-for="score in 5" :key="score" type="button" :class="{ selected: addRating >= score * 2 }" :aria-label="`${score * 2} 分`" @click="addRating = score * 2"><Star :size="18" /></button><strong>{{ addRating || '—' }}<small>/ 10</small></strong></div></div>
+                          <label class="tmdb-review"><span>个人评价</span><textarea v-model="addReview" rows="3" placeholder="写下看完后的感受……"></textarea></label>
+                        </div>
+                      </Transition>
+                      <button class="tmdb-confirm-add" @click="addTmdbMovie(result)"><Check :size="15" />确认添加</button>
+                    </section>
+                  </div>
+                </Transition>
+              </article>
             </div>
           </template>
         </div>
@@ -624,8 +673,8 @@ function navigateDetail(direction) {
               <header class="settings-header settings-piece" style="--settings-order: 0">
                 <button :aria-label="settingsSection === 'hub' ? '返回首页' : '返回设置'" @click="backFromSettings"><ChevronLeft :size="22" /></button>
                 <div>
-                  <h1>{{ settingsSection === 'hub' ? '设置' : settingsSection === 'profile' ? '个人信息' : settingsSection === 'home' ? '首页编辑' : 'TMDB 设置' }}</h1>
-                  <p>{{ settingsSection === 'hub' ? '把常用设置收进清晰的分类里。' : settingsSection === 'profile' ? '头像和名称会显示在首页。' : settingsSection === 'home' ? '控制首页的统计与展示数量。' : '配置数据接口与国内网络访问。' }}</p>
+                  <h1>{{ settingsSection === 'hub' ? '设置' : settingsSection === 'profile' ? '个人信息' : settingsSection === 'home' ? '首页编辑' : settingsSection === 'library' ? '列表设置' : 'TMDB 设置' }}</h1>
+                  <p>{{ settingsSection === 'hub' ? '把常用设置收进清晰的分类里。' : settingsSection === 'profile' ? '头像和名称会显示在首页。' : settingsSection === 'home' ? '控制首页的统计与展示数量。' : settingsSection === 'library' ? '控制片库快捷标签的显示数量。' : '配置数据接口与国内网络访问。' }}</p>
                 </div>
               </header>
 
@@ -641,6 +690,7 @@ function navigateDetail(direction) {
 
                 <div class="settings-category settings-piece" style="--settings-order: 2">
                   <button @click="openSettingsSection('home')"><i class="settings-icon settings-icon--home"><House :size="18" /></i><span><strong>首页编辑</strong><small>统计单位、展示数量</small></span><ChevronRight :size="18" /></button>
+                  <button @click="openSettingsSection('library')"><i class="settings-icon settings-icon--library"><SlidersHorizontal :size="18" /></i><span><strong>列表设置</strong><small>快捷分类显示数量</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('tmdb')"><i class="settings-icon settings-icon--tmdb"><Database :size="18" /></i><span><strong>TMDB 设置</strong><small>API、图片与国内网络</small></span><ChevronRight :size="18" /></button>
                 </div>
                 <p class="settings-footnote settings-piece" style="--settings-order: 3">所有设置只保存在当前浏览器中。</p>
@@ -659,6 +709,10 @@ function navigateDetail(direction) {
               <template v-else-if="settingsSection === 'home'">
                 <div class="settings-group settings-piece" style="--settings-order: 1"><label>默认统计单位</label><div class="period-options" role="group" aria-label="时间单位"><button v-for="option in [{ value: 'year', label: '年' }, { value: 'month', label: '月' }, { value: 'week', label: '周' }, { value: 'day', label: '日' }]" :key="option.value" :class="{ selected: statPeriod === option.value }" @click="statPeriod = option.value">{{ option.label }}</button></div></div>
                 <div class="settings-group settings-piece" style="--settings-order: 2"><label>首页最多展示</label><div class="period-options home-limit-options" role="group" aria-label="首页电影展示数量"><button v-for="limit in [5, 10]" :key="limit" :class="{ selected: homeDisplayLimit === limit }" @click="homeDisplayLimit = limit">{{ limit }} 部</button></div><small>默认展示 5 部，最多可以设置为 10 部。</small></div>
+              </template>
+
+              <template v-else-if="settingsSection === 'library'">
+                <div class="settings-group settings-piece" style="--settings-order: 1"><label>快捷标签数量</label><div class="tag-limit-options"><button v-for="limit in [5, 7, 9]" :key="limit" :class="{ selected: libraryTagLimit === limit }" @click="libraryTagLimit = limit"><strong>{{ limit }}</strong><span>个标签</span></button></div><small>片库默认显示 5 个；更多标签可以横向滑动查看。</small></div>
               </template>
 
               <template v-else>
