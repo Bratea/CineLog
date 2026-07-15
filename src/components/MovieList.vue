@@ -22,10 +22,6 @@ function posterStyle(movie) {
   return movie.poster === 'demon' ? { backgroundImage: `url(${cinematicAnimeCollage})` } : {}
 }
 
-function movieTone(movie) {
-  return ({ pop: '#5c9fb3', demon: '#b66632', crayon: '#d0ae64', coco: '#8e659d' })[movie.poster] || '#7c8796'
-}
-
 function confirmWatched(movie) {
   if (armedId.value !== movie.id) {
     armedId.value = movie.id
@@ -46,7 +42,7 @@ onBeforeUnmount(() => window.clearTimeout(confirmTimer))
 
 <template>
   <div class="movie-list" aria-label="电影列表视图">
-    <article v-for="movie in movies" :key="movie.id" class="movie-list-item" :style="{ '--row-tint': movieTone(movie) }" role="button" tabindex="0" :aria-label="`查看${movie.title}详情`" @click="openRow(movie, $event)" @keydown.enter.prevent="openRow(movie, $event)">
+    <article v-for="(movie, index) in movies" :key="movie.id" class="movie-list-item" :style="{ '--row-order': index }" role="button" tabindex="0" :aria-label="`查看${movie.title}详情`" @click="openRow(movie, $event)" @keydown.enter.prevent="openRow(movie, $event)">
       <div class="movie-list-poster" :class="`movie-list-poster--${movie.poster}`" :style="posterStyle(movie)"></div>
       <div class="movie-list-copy">
         <p>{{ movie.meta }} · {{ movie.year }}</p>
@@ -67,7 +63,7 @@ onBeforeUnmount(() => window.clearTimeout(confirmTimer))
 <style lang="scss" scoped>
 .movie-list { display: grid; gap: 8px; max-height: 342px; padding: 0 22px 8px; overflow-y: auto; scrollbar-width: none; }
 .movie-list::-webkit-scrollbar { display: none; }
-.movie-list-item { display: grid; grid-template-columns: 58px 1fr 34px; align-items: center; gap: 11px; min-height: 74px; padding: 8px 10px; border: 1px solid color-mix(in srgb,var(--row-tint) 18%,#e8e8eb); border-radius: 19px; outline:0; background:linear-gradient(105deg,color-mix(in srgb,var(--row-tint) 17%,rgba(255,255,255,.94)),rgba(255,255,255,.88) 58%,color-mix(in srgb,var(--row-tint) 8%,rgba(255,255,255,.9))); box-shadow:0 6px 16px color-mix(in srgb,var(--row-tint) 10%,transparent); backdrop-filter:blur(16px) saturate(1.15); cursor:pointer; transition: transform .42s cubic-bezier(.16,1,.3,1), box-shadow .35s ease; animation: row-in .58s cubic-bezier(.16,1,.3,1) both; }
+.movie-list-item { display: grid; grid-template-columns: 58px 1fr 34px; align-items: center; gap: 11px; min-height: 74px; padding: 8px 10px; border: 1px solid #e5e6e8; border-radius: 19px; outline:0; background:rgba(255,255,255,.94); box-shadow:0 6px 16px rgba(18,19,22,.055); backdrop-filter:blur(16px) saturate(1.08); cursor:pointer; transition: transform .42s cubic-bezier(.16,1,.3,1), box-shadow .35s ease; animation: row-in .86s cubic-bezier(.22,.7,.2,1) both; animation-delay:calc(var(--row-order,0) * 72ms); }
 .movie-list-item:hover { transform: translateY(-1px) scale(1.012); box-shadow: 0 9px 19px rgba(18,19,22,.07); }
 .movie-list-poster { width: 58px; height: 58px; border-radius: 14px; background-size: cover; background-position: center; }
 .movie-list-poster--pop { background: radial-gradient(circle at 60% 20%, #ffcc74 0 9%, transparent 10%), linear-gradient(155deg, #4bb5cd, #1c4e80 50%, #061425); }
@@ -83,6 +79,6 @@ onBeforeUnmount(() => window.clearTimeout(confirmTimer))
 .movie-list-arrow { display: grid; place-items: center; width: 32px; height: 32px; color: #fff; border-radius: 50%; background: #1e1f22; transition: transform .3s cubic-bezier(.16,1,.3,1); }
 .movie-list-item:hover .movie-list-arrow, .movie-list-item:focus-visible .movie-list-arrow { transform: translateX(2px) scale(1.04); }
 .movie-list-empty { padding: 40px 0; color: #999a9f; text-align: center; font-size: 12px; }
-@keyframes row-in { 0% { opacity: 0; transform: translateY(15px) scale(.97); } 72% { opacity: 1; transform: translateY(-1px) scale(1.018); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes row-in { 0% { opacity: 0; transform: translateY(24px) scale(.97); } 72% { opacity: 1; transform: translateY(-2px) scale(1.012); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
 @media (prefers-reduced-motion: reduce) { .movie-list-item { animation: none; } }
 </style>

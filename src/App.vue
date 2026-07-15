@@ -70,9 +70,6 @@ const markingWatched = ref([])
 const armedWatched = ref(null)
 const posterFlight = ref(null)
 const phoneShell = ref(null)
-const surfaceDragStart = ref(null)
-const surfaceDragX = ref(0)
-const surfaceDragging = ref(false)
 const yearMenuOpen = ref(false)
 const settingsSection = ref('hub')
 const settingsDirection = ref('forward')
@@ -108,8 +105,10 @@ const tmdbPullStart = ref(null)
 const selectedTmdbResult = ref(null)
 const addMediaType = ref('电影')
 const addWatched = ref(false)
+const addWatchedDate = ref(new Date().toISOString().slice(0, 10))
 const addRating = ref(0)
 const addReview = ref('')
+const overviewExpanded = ref(false)
 const recordNotice = ref(null)
 const recordClosing = ref(false)
 const libraryWatchFilter = ref('all')
@@ -176,7 +175,6 @@ function loadCategorySettings() {
 const categorySettings = ref(loadCategorySettings())
 
 let watchConfirmTimer
-let surfaceSettleTimer
 let recordNoticeTimer
 
 const watchedCount = computed(() => movieRecords.value.filter((movie) => movie.watched).length)
@@ -494,40 +492,6 @@ function dismissLibraryPopovers(event) {
   if (libraryMediaMenuOpen.value && !event.target.closest('.library-media-switch')) libraryMediaMenuOpen.value = false
 }
 
-function surfacePointerDown(event) {
-  if (!['home', 'library'].includes(currentPage.value) || event.target.closest('button, input, label, .deck, .library-row, .movie-list')) return
-  surfaceDragStart.value = { x: event.clientX, y: event.clientY }
-  surfaceDragging.value = true
-  event.currentTarget.setPointerCapture?.(event.pointerId)
-}
-
-function surfacePointerMove(event) {
-  if (!surfaceDragStart.value) return
-  const deltaX = event.clientX - surfaceDragStart.value.x
-  const deltaY = event.clientY - surfaceDragStart.value.y
-  if (Math.abs(deltaX) < 8 || Math.abs(deltaX) < Math.abs(deltaY) * 1.15) return
-  const allowed = currentPage.value === 'home' ? Math.min(0, deltaX) : Math.max(0, deltaX)
-  surfaceDragX.value = Math.max(-150, Math.min(150, allowed * .82))
-}
-
-function surfacePointerUp() {
-  if (!surfaceDragStart.value) return
-  const shouldMove = Math.abs(surfaceDragX.value) > 58
-  const target = currentPage.value === 'home' ? 'library' : 'home'
-  surfaceDragStart.value = null
-  surfaceDragging.value = false
-  if (!shouldMove) {
-    surfaceDragX.value = 0
-    return
-  }
-  surfaceDragX.value = target === 'library' ? -176 : 176
-  window.clearTimeout(surfaceSettleTimer)
-  surfaceSettleTimer = window.setTimeout(() => {
-    target === 'library' ? showLibrary() : showHome()
-    surfaceDragX.value = 0
-  }, 120)
-}
-
 function libraryPosterStyle(movie) {
   const path = movie.backdropUrl || movie.posterUrl || movie.backdrop_path || movie.poster_path
   if (path) {
@@ -723,8 +687,10 @@ function viewTmdbResult(result) {
   selectedTmdbResult.value = result
   addMediaType.value = '电影'
   addWatched.value = false
+  addWatchedDate.value = new Date().toISOString().slice(0, 10)
   addRating.value = 0
   addReview.value = ''
+  overviewExpanded.value = false
 }
 
 function addTmdbMovie(result) {
@@ -747,7 +713,7 @@ function addTmdbMovie(result) {
     originalLanguage: result.original_language || '',
     genreIds: result.genre_ids || [],
     watched: addWatched.value,
-    watchedDate: addWatched.value ? new Date().toISOString().slice(0, 10) : '',
+    watchedDate: addWatched.value ? addWatchedDate.value : '',
     recordDate: new Date().toISOString().slice(0, 10),
     poster: 'tmdb',
     posterText: result.title || result.original_title,
@@ -764,7 +730,7 @@ function addTmdbMovie(result) {
 
 async function ensureTmdbDetails(movie) {
   const rawId = movie?.tmdbId ?? (String(movie?.id || '').startsWith('tmdb-') ? String(movie.id).slice(5) : null)
-  if (!rawId || movie.detailState === 'loading' || movie.detailState === 'success') return
+  if (!rawId || movie.detailState === 'loading' || (movie.detailState === 'success' && movie.stills?.length)) return
   if (!tmdbToken.value.trim()) {
     movie.detailState = 'error'
     movie.detailError = '请先在设置中配置 TMDB API 密钥。'
@@ -777,8 +743,9 @@ async function ensureTmdbDetails(movie) {
     const base = tmdbApiBase.value.trim().replace(/\/$/, '')
     const request = tmdbRequest(`${base}/movie/${rawId}`, {
       language: 'zh-CN',
-      append_to_response: 'credits,videos,release_dates',
+      append_to_response: 'credits,videos,release_dates,images',
       include_video_language: 'zh,en,null',
+      include_image_language: 'zh,en,null',
     })
     const response = await fetch(request.url, request.options)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
@@ -804,6 +771,7 @@ async function ensureTmdbDetails(movie) {
       tagline: detail.tagline || '',
       tmdbRating: detail.vote_average ? Number(detail.vote_average.toFixed(1)) : movie.tmdbRating,
       tmdbVoteCount: detail.vote_count || movie.tmdbVoteCount || 0,
+      popularity: detail.popularity || movie.popularity || 0,
       certification,
       director: director ? { id: director.id, name: director.name, role: '导演', profile_path: director.profile_path } : null,
       cast: (detail.credits?.cast || []).slice(0, 8).map((person) => ({
@@ -813,6 +781,11 @@ async function ensureTmdbDetails(movie) {
         profile_path: person.profile_path,
       })),
       trailer: trailer ? { key: trailer.key, name: trailer.name, site: trailer.site } : null,
+      stills: (detail.images?.backdrops || []).slice(0, 8).map((image) => ({
+        file_path: image.file_path,
+        width: image.width,
+        height: image.height,
+      })),
       detailState: 'success',
     })
     movie.meta = movie.genres.length ? movie.genres.map((genre) => genre.name).join(' · ') : movie.meta
@@ -852,7 +825,7 @@ function navigateDetail(direction) {
       <div class="ambient-orb ambient-orb--two" aria-hidden="true"></div>
 
       <Transition :name="surfaceTransitionName" :duration="820">
-        <section v-if="surfacePage === 'home'" key="home" class="surface-view home-surface" :class="{ 'is-surface-dragging': surfaceDragging }" :style="{ '--surface-drag': `${surfaceDragX}px` }" @pointerdown="surfacePointerDown" @pointermove="surfacePointerMove" @pointerup="surfacePointerUp" @pointercancel="surfacePointerUp">
+        <section v-if="surfacePage === 'home'" key="home" class="surface-view home-surface">
         <header class="topbar surface-piece" style="--piece-order: 0">
           <div class="welcome-row">
             <div>
@@ -912,7 +885,7 @@ function navigateDetail(direction) {
         </section>
         </section>
 
-        <section v-else-if="surfacePage === 'library'" key="library" class="surface-view library-surface" :class="{ 'is-surface-dragging': surfaceDragging }" :style="{ '--surface-drag': `${surfaceDragX}px` }" aria-label="电影列表页面" @click="dismissLibraryPopovers" @pointerdown="surfacePointerDown" @pointermove="surfacePointerMove" @pointerup="surfacePointerUp" @pointercancel="surfacePointerUp">
+        <section v-else-if="surfacePage === 'library'" key="library" class="surface-view library-surface" aria-label="电影列表页面" @click="dismissLibraryPopovers">
           <header class="library-header surface-piece" style="--piece-order: 0">
             <div>
               <h1>
@@ -1070,11 +1043,11 @@ function navigateDetail(direction) {
                 <section class="tmdb-detail-modal" role="dialog" aria-modal="true" :aria-label="`${selectedTmdbResult.title || selectedTmdbResult.original_title} 添加详情`">
                   <header class="tmdb-modal-header"><div class="tmdb-result-poster" :style="tmdbPoster(selectedTmdbResult) ? { backgroundImage: `url(${tmdbPoster(selectedTmdbResult)})` } : {}"></div><div><small>{{ selectedTmdbResult.release_date?.slice(0, 4) || '待定' }} · TMDB {{ selectedTmdbResult.vote_average?.toFixed(1) || '暂无评分' }}</small><h3>{{ selectedTmdbResult.title || selectedTmdbResult.original_title }}</h3><p>{{ selectedTmdbResult.original_title || '暂无原名' }}</p></div><button aria-label="收起详情" @click="selectedTmdbResult = null"><X :size="17" /></button></header>
                   <div class="tmdb-modal-scroll">
-                    <section class="tmdb-info-card"><div class="tmdb-card-title"><span>影片介绍</span><small>{{ selectedTmdbResult.release_date?.slice(0, 4) || '年份待定' }}</small></div><p>{{ selectedTmdbResult.overview || '暂无剧情简介。' }}</p></section>
+                    <section class="tmdb-info-card" :class="{ expanded: overviewExpanded }"><div class="tmdb-card-title"><span>影片介绍</span><small>{{ selectedTmdbResult.release_date?.slice(0, 4) || '年份待定' }}</small></div><p>{{ selectedTmdbResult.overview || '暂无剧情简介。' }}</p><button class="tmdb-overview-toggle" :aria-expanded="overviewExpanded" @click="overviewExpanded = !overviewExpanded">{{ overviewExpanded ? '收起' : '展开' }}<ChevronDown :size="12" /></button></section>
                     <section class="tmdb-add-card">
                       <div class="tmdb-card-title"><span>添加设置</span><small>完善你的记录</small></div>
                       <label class="tmdb-field"><span>类型</span><select v-model="addMediaType"><option v-for="type in libraryMediaTypes" :key="type">{{ type }}</option></select></label>
-                      <label class="tmdb-watch-toggle"><span><strong>是否已观看</strong><small>{{ addWatched ? '记录评分与观后感' : '加入待看清单' }}</small></span><input v-model="addWatched" type="checkbox" /><i aria-hidden="true"></i></label>
+                      <div class="tmdb-watch-row" :class="{ watched: addWatched }"><label class="tmdb-watch-toggle"><span><strong>是否已观看</strong><small>{{ addWatched ? '记录评分与观后感' : '加入待看清单' }}</small></span><input v-model="addWatched" type="checkbox" /><i aria-hidden="true"></i></label><Transition name="watch-date"><label v-if="addWatched" class="tmdb-watch-date"><span>观看日期</span><input v-model="addWatchedDate" type="date" /></label></Transition></div>
                       <Transition name="watched-fields"><div v-if="addWatched" class="tmdb-watched-fields"><div class="tmdb-rating"><span>个人评分</span><div><button v-for="score in 5" :key="score" type="button" :class="{ selected: addRating >= score * 2 }" :aria-label="`${score * 2} 分`" @click="addRating = score * 2"><Star :size="18" /></button><strong>{{ addRating || '—' }}<small>/ 10</small></strong></div></div><label class="tmdb-review"><span>个人评价</span><textarea v-model="addReview" rows="3" placeholder="写下看完后的感受……"></textarea></label></div></Transition>
                       <button class="tmdb-confirm-add" @click="addTmdbMovie(selectedTmdbResult)"><Check :size="15" />确认添加</button>
                     </section>

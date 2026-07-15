@@ -86,10 +86,20 @@ const voteLabel = computed(() => {
   return `${count} 人评分`
 })
 const people = computed(() => [props.movie.director, ...(props.movie.cast || [])].filter(Boolean).slice(0, 8))
-const canExpandOverview = computed(() => String(props.movie.overview || '').length > 92)
-const trailerUrl = computed(() => props.movie.trailer?.site === 'YouTube' && props.movie.trailer.key
-  ? `https://www.youtube.com/watch?v=${props.movie.trailer.key}`
-  : '')
+const canExpandOverview = computed(() => String(props.movie.overview || '').length > 48)
+const trailerUrl = computed(() => {
+  const directUrl = props.movie.trailerUrl || props.movie.videoUrl || props.movie.trailer?.url
+  if (directUrl) return directUrl
+  if (props.movie.trailer?.site === 'YouTube' && props.movie.trailer.key) return `https://www.youtube.com/watch?v=${props.movie.trailer.key}`
+  if (props.movie.trailer?.site === 'Vimeo' && props.movie.trailer.key) return `https://vimeo.com/${props.movie.trailer.key}`
+  return ''
+})
+const movieStills = computed(() => {
+  const supplied = props.movie.stills || props.movie.backdrops || []
+  const paths = supplied.map((item) => typeof item === 'string' ? item : item?.file_path || item?.path).filter(Boolean)
+  const fallback = [props.movie.backdrop_path, props.movie.backdropUrl, props.movie.poster_path, props.movie.posterUrl].filter(Boolean)
+  return [...new Set([...paths, ...fallback])].slice(0, 8)
+})
 const detailMotionStyle = computed(() => ({ '--scroll': scrollProgress.value, '--swipe-x': `${swipeX.value}px` }))
 const moduleOrder = (id) => {
   const index = props.layoutOrder.indexOf(id)
@@ -158,7 +168,7 @@ function openTrailer() {
 }
 
 function detailPointerDown(event) {
-  if (isSwitching.value || isReturning.value || event.target.closest('button, a, input, textarea, [role="group"]')) return
+  if (isSwitching.value || isReturning.value || event.target.closest('button, a, input, textarea, [role="group"], .people-rail, .stills-rail')) return
   swipeStart.value = { x: event.clientX, y: event.clientY }
   swipeAxis.value = null
   swipeTransition.value = false
@@ -263,9 +273,12 @@ onBeforeUnmount(() => {
     </header>
 
     <div ref="detailScroll" class="detail-scroll" @scroll.passive="handleScroll">
-      <section class="detail-hero-copy">
+      <section :key="`hero-${movie.id}`" class="detail-hero-copy">
         <p class="detail-original">{{ movie.originalTitle }}</p>
-        <h1>{{ movie.title }}</h1>
+        <div class="detail-title-row">
+          <h1>{{ movie.title }}</h1>
+          <span class="release-chip"><CalendarDays :size="11" />{{ releaseLabel }}</span>
+        </div>
         <div class="detail-meta">
           <span>{{ movie.year }}</span><i></i>
           <span>{{ genres.slice(0, 3).join('、') || '类型待补充' }}</span><i></i>
@@ -273,7 +286,7 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <div class="detail-content">
+      <div :key="`content-${movie.id}`" class="detail-content">
         <p v-if="movie.tagline" class="detail-tagline detail-module" :style="{ order: moduleOrder('tagline') }">“{{ movie.tagline }}”</p>
 
         <div v-if="movie.detailState === 'loading'" class="detail-load-state">
@@ -283,18 +296,19 @@ onBeforeUnmount(() => {
           <span>{{ movie.detailError }}</span>
         </div>
 
-        <div class="tmdb-score-card detail-module reveal-section" :style="{ order: moduleOrder('score') }">
-          <span>TMDB 评分</span>
-          <div><strong>{{ tmdbScore ?? '—' }}</strong><small>/10</small></div>
-          <p><Star :size="13" fill="currentColor" />{{ voteLabel }}</p>
-        </div>
-        <button class="trailer-card detail-module reveal-section" :style="{ order: moduleOrder('trailer') }" :disabled="!trailerUrl" @click="openTrailer">
-          <i><Play :size="17" fill="currentColor" /></i>
-          <span><strong>预告片</strong><small>{{ trailerUrl ? '观看官方预告' : '暂无可用视频' }}</small></span>
-        </button>
+        <section class="score-actions detail-module reveal-section" :style="{ order: Math.min(moduleOrder('score'), moduleOrder('trailer')) }" aria-label="评分与预告片">
+          <div class="tmdb-score-card">
+            <span>TMDB 评分</span>
+            <div><strong>{{ tmdbScore ?? '—' }}</strong><small>/10</small></div>
+            <p><Star :size="13" fill="currentColor" />{{ voteLabel }}</p>
+          </div>
+          <button class="trailer-card" :disabled="!trailerUrl" @click="openTrailer">
+            <i><Play :size="17" fill="currentColor" /></i>
+            <span><strong>{{ trailerUrl ? '预告片' : '预告片链接' }}</strong><small>{{ trailerUrl ? '播放网络视频' : '暂未提供 URL' }}</small></span>
+          </button>
+        </section>
 
         <section class="quick-facts detail-module reveal-section" :style="{ order: moduleOrder('facts') }" aria-label="影片基础资料">
-          <span><CalendarDays :size="14" />{{ releaseLabel }}</span>
           <span><Clock3 :size="14" />{{ runtimeLabel }}</span>
           <span><Tag :size="14" />{{ movie.certification || genres[0] || '分级待定' }}</span>
         </section>
@@ -327,6 +341,15 @@ onBeforeUnmount(() => {
             <div><span>观看日期</span><strong>{{ movie.watchedDate || (movie.watched ? movie.year : '尚未观看') }}</strong></div>
           </div>
           <blockquote>“{{ movie.feeling || (movie.watched ? '还没有写下短评。' : '加入待看清单，留给下一次观影。') }}”</blockquote>
+        </section>
+
+        <section v-if="movieStills.length" class="detail-panel stills-panel detail-module reveal-section" style="order:98">
+          <div class="section-heading"><h2>电影剧照</h2><small>左右滑动查看</small></div>
+          <div class="stills-rail">
+            <figure v-for="(still, index) in movieStills" :key="`${still}-${index}`" :style="{ backgroundImage: `url(${imageUrl(still, 'w780')})` }">
+              <span>{{ String(index + 1).padStart(2, '0') }}</span>
+            </figure>
+          </div>
         </section>
 
         <div class="detail-end" style="order: 99">影片资料由 TMDB 提供</div>
@@ -400,4 +423,10 @@ onBeforeUnmount(() => {
 @keyframes backdrop-open{from{background-position:center 30%;transform:scale(1.13) translateY(-12px);filter:saturate(1.1)}to{background-position:center 20%;transform:scale(calc(1.035 + var(--scroll) * .018)) translateY(calc(var(--scroll) * -5px));filter:saturate(1)}}@keyframes detail-copy-in{from{opacity:0;transform:translateY(-24px)}to{opacity:1;transform:translateY(0)}}@keyframes detail-list-in{from{opacity:.35;transform:scale(1.018)}to{opacity:1;transform:scale(1)}}@keyframes detail-return-home{0%{opacity:1;clip-path:inset(0 round 0);transform:scale(1)}58%{opacity:1;clip-path:inset(10% 9% 35% 9% round 24px);transform:translateY(18px) scale(.96)}100%{opacity:0;clip-path:inset(20% 15% 47% 15% round 28px);transform:translateY(42px) scale(.88)}}@keyframes detail-return-list{0%{opacity:1;clip-path:inset(0 round 0);transform:scale(1)}58%{opacity:1;clip-path:inset(18% 36% 46% 8% round 20px);transform:translate(-26px,24px) scale(.94)}100%{opacity:0;clip-path:inset(38% 74% 50% 6% round 14px);transform:translate(-54px,38px) scale(.82)}}
 @media(max-height:760px){.detail-hero-copy{min-height:385px}.record-editor-sheet{padding-bottom:16px}.rating-editor{margin-top:14px}.record-field{margin-top:11px}}@media(prefers-reduced-motion:reduce){.movie-detail,.detail-backdrop,.detail-hero-copy,.detail-load-state svg,.star-burst svg,.record-editor-sheet{animation:none}.detail-backdrop{transition:none}.reveal-section{opacity:1;filter:none;transform:none;transition:none}}
 .tmdb-score-card,.trailer-card{border-color:rgba(255,255,255,calc(.14 + var(--scroll) * .08));background:linear-gradient(145deg,rgba(255,255,255,calc(.075 - var(--scroll) * .025)),rgba(7,16,15,calc(.16 + var(--scroll) * .68)));box-shadow:inset 0 1px 0 rgba(255,255,255,calc(.16 + var(--scroll) * .04)),0 10px 24px rgba(0,0,0,calc(.12 + var(--scroll) * .16));backdrop-filter:blur(calc(14px + var(--scroll) * 8px)) saturate(calc(1.18 + var(--scroll) * .12));transition:background .28s ease,border-color .28s ease,box-shadow .28s ease,backdrop-filter .28s ease}.tmdb-score-card{border-color:color-mix(in srgb,var(--accent) calc(32% + var(--scroll) * 12%),rgba(255,255,255,.17));background:linear-gradient(145deg,rgba(255,255,255,calc(.08 - var(--scroll) * .03)),rgba(7,18,18,calc(.2 + var(--scroll) * .66)));box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 10px 24px rgba(0,0,0,calc(.14 + var(--scroll) * .16));backdrop-filter:blur(calc(16px + var(--scroll) * 7px)) saturate(calc(1.2 + var(--scroll) * .1))}.quick-facts{color:rgba(247,241,232,calc(.66 + var(--scroll) * .18));border-color:rgba(255,255,255,calc(.1 + var(--scroll) * .1));background:linear-gradient(145deg,rgba(255,255,255,calc(.045 - var(--scroll) * .015)),rgba(7,16,15,calc(.13 + var(--scroll) * .7)));box-shadow:inset 0 1px 0 rgba(255,255,255,.1);backdrop-filter:blur(calc(13px + var(--scroll) * 8px)) saturate(1.18);transition:color .28s ease,background .28s ease,border-color .28s ease,backdrop-filter .28s ease}.detail-panel{border-color:rgba(255,255,255,calc(.13 + var(--scroll) * .08));background:linear-gradient(145deg,rgba(255,255,255,calc(.07 - var(--scroll) * .025)),rgba(7,16,15,calc(.14 + var(--scroll) * .72)));box-shadow:inset 0 1px 0 rgba(255,255,255,calc(.12 + var(--scroll) * .04)),0 13px 28px rgba(0,0,0,calc(.1 + var(--scroll) * .2));backdrop-filter:blur(calc(15px + var(--scroll) * 9px)) saturate(calc(1.16 + var(--scroll) * .1));transition:background .3s ease,border-color .3s ease,box-shadow .3s ease,backdrop-filter .3s ease}
+.movie-detail{translate:none}.movie-detail.has-swipe-transition{transition:none}.detail-backdrop,.detail-topbar,.detail-scroll{translate:var(--swipe-x) 0;will-change:translate}.movie-detail.has-swipe-transition .detail-topbar,.movie-detail.has-swipe-transition .detail-scroll{transition:translate .36s cubic-bezier(.18,.86,.2,1),opacity .24s ease}.movie-detail.has-swipe-transition .detail-backdrop{transition:height .3s cubic-bezier(.22,.61,.36,1),transform .26s ease-out,translate .36s cubic-bezier(.18,.86,.2,1),opacity .24s ease}.movie-detail.is-swipe-dragging .detail-backdrop,.movie-detail.is-swipe-dragging .detail-topbar,.movie-detail.is-swipe-dragging .detail-scroll{transition:none}.movie-detail.is-switching{opacity:1}.movie-detail.is-switching .detail-backdrop,.movie-detail.is-switching .detail-topbar,.movie-detail.is-switching .detail-scroll{opacity:.82}
+.detail-title-row{display:flex;align-items:end;justify-content:space-between;gap:12px}.detail-title-row h1{min-width:0;animation:title-rise .7s cubic-bezier(.16,1,.3,1) .09s both}.release-chip{display:flex;align-items:center;flex:0 0 auto;gap:4px;max-width:112px;padding:6px 8px;color:rgba(255,248,239,.82);border:1px solid rgba(255,255,255,.2);border-radius:999px;background:rgba(7,16,15,.3);box-shadow:inset 0 1px 0 rgba(255,255,255,.12);backdrop-filter:blur(14px);font-size:8px;white-space:nowrap;animation:title-rise .68s cubic-bezier(.16,1,.3,1) .18s both}.detail-original{animation:title-rise .62s cubic-bezier(.16,1,.3,1) .03s both}.detail-meta{animation:title-rise .66s cubic-bezier(.16,1,.3,1) .26s both}
+.score-actions .tmdb-score-card,.score-actions .trailer-card{min-width:0;min-height:108px}.score-actions .trailer-card{padding:13px;gap:8px}.score-actions .trailer-card i{flex-basis:38px;width:38px;height:38px}.score-actions .trailer-card:disabled{opacity:.76}.quick-facts span{flex:1 0 auto;justify-content:center}
+.people-rail,.stills-rail{-webkit-overflow-scrolling:touch}.people-rail{pointer-events:auto;cursor:grab}.people-rail:active{cursor:grabbing}.stills-panel{padding-right:0}.stills-panel .section-heading{padding-right:18px}.stills-rail{display:flex;gap:10px;overflow-x:auto;margin-top:14px;padding:0 18px 8px 0;scrollbar-width:none;scroll-snap-type:x mandatory;overscroll-behavior-inline:contain;touch-action:pan-x;pointer-events:auto}.stills-rail::-webkit-scrollbar{display:none}.stills-rail figure{position:relative;flex:0 0 78%;height:150px;margin:0;overflow:hidden;border:1px solid rgba(255,255,255,.12);border-radius:16px;background:rgba(255,255,255,.04) center/cover no-repeat;box-shadow:0 10px 24px rgba(0,0,0,.22);scroll-snap-align:start}.stills-rail figure::after{content:'';position:absolute;inset:45% 0 0;background:linear-gradient(transparent,rgba(4,10,10,.58))}.stills-rail figure span{position:absolute;z-index:1;right:10px;bottom:8px;color:rgba(255,255,255,.78);font:8px Georgia,serif;letter-spacing:.12em}
+@keyframes title-rise{from{opacity:0;filter:blur(6px);transform:translateY(20px)}to{opacity:1;filter:blur(0);transform:translateY(0)}}
+@media(max-width:390px){.detail-title-row{align-items:start;flex-direction:column;gap:9px}.release-chip{order:-1}.score-actions{grid-template-columns:1fr 1fr}.score-actions .trailer-card{gap:6px}.score-actions .trailer-card i{flex-basis:34px;width:34px;height:34px}}
 </style>

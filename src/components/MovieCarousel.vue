@@ -27,7 +27,6 @@ const swipeMax = ref(0)
 const isSwiping = ref(false)
 const swipeSettled = ref(false)
 const swipeArmed = ref(false)
-const settlePulse = ref(false)
 
 let openTimer
 let returnTimer
@@ -59,11 +58,6 @@ function move(direction) {
   const count = props.movies.length
   if (!count) return
   activeIndex.value = (activeIndex.value + direction + count) % count
-  settlePulse.value = false
-  window.requestAnimationFrame(() => {
-    settlePulse.value = true
-    window.setTimeout(() => { settlePulse.value = false }, 620)
-  })
 }
 
 function pointerDown(event) {
@@ -321,7 +315,7 @@ onBeforeUnmount(() => {
         v-for="movie in cardMovies"
         :key="movie.id"
         class="album-card"
-        :class="[`album-card--${movie.poster}`, { 'active-card': movie.offset === 0, 'settle-pop': movie.offset === 0 && settlePulse }]"
+        :class="[`album-card--${movie.poster}`, { 'active-card': movie.offset === 0 }]"
         :style="cardStyle(movie.offset)"
         :aria-label="movie.offset === 0 ? `向上推动 ${movie.title} 查看详情` : undefined"
       >
@@ -329,13 +323,14 @@ onBeforeUnmount(() => {
         <div v-if="movie.offset === 0" class="album-info">
           <p>{{ movie.meta }} · {{ movie.year }}</p>
           <h2>{{ movie.title }}</h2>
-          <div class="album-bottom">
-            <div class="movie-status">
-              <span class="rating" :class="{ unrated: movie.rating === null }"><Star :size="13" :fill="movie.rating === null ? 'none' : 'currentColor'" />{{ movie.rating ?? '未评分' }}</span>
-            </div>
-            <div v-if="movie.watched" class="push-cta"><span>向上推动查看详情</span><i><ChevronUp :size="18" /></i></div>
+          <div v-if="movie.watched" class="watched-card-footer">
+            <span class="card-stars" :aria-label="`评分 ${movie.rating ?? 0} 分`">
+              <Star v-for="star in 5" :key="star" :size="13" :class="{ filled: star <= Math.round((movie.rating || 0) / 2) }" :fill="star <= Math.round((movie.rating || 0) / 2) ? 'currentColor' : 'none'" />
+            </span>
+            <time>{{ movie.watchedDate || movie.releaseDate || movie.release_date || movie.year }}</time>
+          </div>
+          <div v-else class="album-bottom">
             <div
-              v-else
               class="watch-slider"
               :class="{ swiping: isSwiping, armed: swipeArmed, settled: swipeSettled }"
               :style="{ '--swipe-x': `${swipeX}px` }"
@@ -385,25 +380,22 @@ onBeforeUnmount(() => {
 .opening-detail .active-card .poster-image { animation:poster-open-lift .5s cubic-bezier(.2,.72,.18,1) both; }
 .opening-detail .active-card .album-info { animation:card-info-release .36s ease-out both; }
 .opening-detail .three-glow { opacity:.18; transform:scale(1.05); transition:opacity .42s ease,transform .5s cubic-bezier(.2,.72,.18,1); }
-.album-card.settle-pop { animation: settle-pop .62s cubic-bezier(.16,1,.3,1) both; }
-.poster-image { position: absolute; inset: 0; background-size: 129% auto; background-position: center 35%; background-repeat: no-repeat; }
+.poster-image { position: absolute; inset: 0; background-size: cover; background-position: center; background-repeat: no-repeat; }
 .poster-image::after { content: ''; position: absolute; inset: 24% 0 0; background: linear-gradient(180deg, transparent 0%, rgba(7, 9, 12, .05) 25%, rgba(7, 9, 12, .72) 70%, rgba(7, 9, 12, .92) 100%); }
 .album-card--pop .poster-image { background-image: radial-gradient(circle at 60% 20%, #ffcc74 0 7%, transparent 8%), linear-gradient(155deg, #4bb5cd, #1c4e80 50%, #061425); }
 .album-card--crayon .poster-image { background-image: radial-gradient(circle at 25% 20%, #ffde68 0 11%, transparent 12%), linear-gradient(155deg, #61c1de, #eca55c 51%, #b33730); }
 .album-card--coco .poster-image { background-image: radial-gradient(circle at 63% 19%, #ffda6b 0 10%, transparent 11%), linear-gradient(150deg, #3a61ad, #8b4074 56%, #f29b53); }
-.album-info { position: absolute; z-index: 2; right: 0; bottom: 0; left: 0; padding: 50px 13px 12px; background: linear-gradient(180deg, transparent, rgba(7,9,12,.82) 46%, rgba(7,9,12,.94)); }
+.album-info { position: absolute; z-index: 2; right: 0; bottom: 0; left: 0; padding: 72px 14px 14px; background: linear-gradient(180deg, transparent, rgba(7,9,12,.76) 42%, rgba(7,9,12,.94)); }
 .album-info p { margin: 0; color: rgba(255,255,255,.82); font-size: 10px; font-weight: 600; }
-.album-info h2 { max-width: 92%; margin: 3px 0 0; font-size: 18px; line-height: 1.18; letter-spacing: -.055em; }
-.pull-detail-hint { position: absolute; z-index: 4; top: 10px; left: 50%; display: flex; align-items: center; gap: 4px; padding: 5px 9px; color: rgba(255,255,255,.8); border: 1px solid rgba(255,255,255,.22); border-radius: 999px; background: rgba(9,11,14,.26); backdrop-filter: blur(12px); font-size: 9px; font-weight: 650; transform: translateX(-50%) translateY(calc(var(--open-progress, 0) * -12px)); opacity: calc(.66 - var(--open-progress, 0) * .66); transition: opacity .2s ease, transform .2s ease; pointer-events: none; }
+.album-info h2 { max-width: 94%; margin: 4px 0 0; font-size: 19px; line-height: 1.16; letter-spacing: -.055em; }
+.pull-detail-hint { position: absolute; z-index: 4; top: 10px; left: 50%; display: flex; align-items: center; gap: 4px; padding: 5px 9px; color: rgba(255,255,255,.72); border: 1px solid rgba(255,255,255,.15); border-radius: 999px; background: rgba(9,11,14,.12); backdrop-filter: blur(9px); font-size: 9px; font-weight: 650; transform: translateX(-50%) translateY(calc(var(--open-progress, 0) * -12px)); opacity: calc(.62 - var(--open-progress, 0) * .62); transition: opacity .2s ease, transform .2s ease; pointer-events: none; }
 .pull-detail-hint svg { animation: pull-hint 1.5s ease-in-out infinite; }
 .album-bottom { margin-top: 6px; font-size: 10px; font-weight: 700; }
-.movie-status { display: flex; align-items: center; padding-left: 1px; }
-.rating { display: inline-flex; align-items: center; gap: 4px; }
-.rating { color: #fff; }
-.rating svg { color: #ffd451; }
-.rating.unrated { color: rgba(255,255,255,.64); }
-.push-cta { display:flex; align-items:center; justify-content:center; gap:6px; height:40px; margin-top:8px; color:rgba(255,255,255,.74); border:1px solid rgba(255,255,255,.12); border-radius:999px; background:rgba(24,25,27,.76); box-shadow:0 8px 16px rgba(0,0,0,.16); backdrop-filter:blur(14px); font-size:10px; font-weight:650; pointer-events:none; }
-.push-cta i { display:grid; place-items:center; width:25px; height:25px; color:#17181b; border-radius:50%; background:rgba(255,255,255,.9); font-style:normal; }
+.watched-card-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:9px; }
+.card-stars { display:flex; align-items:center; gap:3px; color:rgba(255,255,255,.3); }
+.card-stars svg { stroke-width:1.8; }
+.card-stars svg.filled { color:#ffd451; }
+.watched-card-footer time { color:rgba(255,255,255,.66); font-size:9px; font-weight:700; }
 .watch-slider { --swipe-x: 0px; position: relative; height: 42px; margin-top: 8px; overflow: hidden; color: rgba(255,255,255,.68); border: 1px solid rgba(255,255,255,.17); border-radius: 999px; background: linear-gradient(145deg,rgba(255,255,255,.09),rgba(13,16,19,.48)); box-shadow: inset 0 1px 0 rgba(255,255,255,.1),0 9px 20px rgba(0,0,0,.2); backdrop-filter:blur(16px) saturate(1.25); touch-action: none; cursor: ew-resize; }
 .watch-slider::before { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: calc(var(--swipe-x) + 42px); background: linear-gradient(90deg,rgba(91,190,136,.28),rgba(91,190,136,.08)); transition: width .38s cubic-bezier(.16,1,.3,1); }
 .watch-slider.swiping::before { transition: width 70ms linear; }
@@ -426,7 +418,6 @@ onBeforeUnmount(() => {
 .dots i { display: block; width: 7px; height: 7px; border-radius: 100px; background: #d7d8db; transition: all .35s ease; }
 .dots i.active { width: 19px; background: #17181b; }
 @keyframes card-rise { from { opacity: 0; transform: translateX(calc(-50% + var(--x))) translateY(38px) rotateZ(var(--tilt)) rotateY(calc(var(--rotate) * -.45)) scale(calc(var(--scale) * .95)); } }
-@keyframes settle-pop { 0% { transform: translateX(calc(-50% + var(--x))) translateY(8px) rotateZ(var(--tilt)) scale(.96); } 68% { transform: translateX(calc(-50% + var(--x))) translateY(-3px) rotateZ(var(--tilt)) scale(1.035); } 100% { transform: translateX(calc(-50% + var(--x))) translateY(var(--lift)) rotateZ(var(--tilt)) scale(var(--scale)); } }
 @keyframes card-open-lift { 0% { transform:translateX(calc(-50% + var(--x))) translateY(var(--lift)) rotateZ(var(--tilt)) rotateX(var(--open-tilt,0deg)) scale(var(--scale)); } 68% { transform:translateX(calc(-50% + var(--x))) translateY(-82px) rotateZ(0) rotateX(-.35deg) scale(1.145); } 100% { transform:translateX(calc(-50% + var(--x))) translateY(-74px) rotateZ(0) rotateX(0) scale(1.13); } }
 @keyframes poster-open-lift { 0% { transform:scale(1); filter:saturate(1); } 100% { transform:scale(1.045); filter:saturate(1.08); } }
 @keyframes card-info-release { 0% { opacity:1; transform:none; } 100% { opacity:.28; transform:translateY(12px); } }
