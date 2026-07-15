@@ -18,6 +18,8 @@ import {
   X,
 } from 'lucide-vue-next'
 import cinematicAnimeCollage from '../assets/cinematic-anime-collage.png'
+import AppNotice from './AppNotice.vue'
+import ImageViewer from './ImageViewer.vue'
 
 const props = defineProps({
   movie: { type: Object, required: true },
@@ -45,11 +47,14 @@ const ratingBurst = ref(false)
 const ratingBurstKey = ref(0)
 const detailScroll = ref(null)
 const activeStillIndex = ref(0)
+const viewerImage = ref(null)
+const detailNotice = ref(null)
 
 let switchTimer
 let backTimer
 let burstTimer
 let revealObserver
+let detailNoticeTimer
 
 const imageUrl = (path, size = 'original') => {
   if (!path) return ''
@@ -141,7 +146,20 @@ function setWatched(value) {
 }
 
 function toggleWatched() {
-  setWatched(!props.movie.watched)
+  const watched = !props.movie.watched
+  setWatched(watched)
+  window.clearTimeout(detailNoticeTimer)
+  detailNotice.value = {
+    title: watched ? '已设为已观看' : '已设为未观看',
+    message: `《${props.movie.title}》的观看状态已更新`,
+  }
+  detailNoticeTimer = window.setTimeout(() => { detailNotice.value = null }, 2600)
+}
+
+function openImage(src, title, fit = 'contain') {
+  if (!src) return
+  detailNotice.value = null
+  viewerImage.value = { src, title, alt: title, fit }
 }
 
 function openRecordEditor() {
@@ -243,6 +261,9 @@ watch(() => props.movie.id, async () => {
   window.clearTimeout(switchTimer)
   overviewExpanded.value = false
   activeStillIndex.value = 0
+  viewerImage.value = null
+  detailNotice.value = null
+  window.clearTimeout(detailNoticeTimer)
   editOpen.value = false
   liked.value = Boolean(props.movie.favourite)
   scrollProgress.value = 0
@@ -266,6 +287,7 @@ onBeforeUnmount(() => {
   window.clearTimeout(switchTimer)
   window.clearTimeout(backTimer)
   window.clearTimeout(burstTimer)
+  window.clearTimeout(detailNoticeTimer)
   revealObserver?.disconnect()
 })
 </script>
@@ -286,12 +308,13 @@ onBeforeUnmount(() => {
       <div class="detail-swipe-hint" aria-hidden="true">左右滑动切换</div>
       <button :class="{ active: liked }" aria-label="收藏" @click="liked = !liked"><Heart :size="20" :fill="liked ? 'currentColor' : 'none'" /></button>
     </header>
+    <AppNotice v-if="detailNotice" :key="detailNotice.title" :title="detailNotice.title" :message="detailNotice.message" placement="detail" :duration="2600" closable @close="detailNotice = null" />
 
     <div ref="detailScroll" class="detail-scroll" @scroll.passive="handleScroll">
       <section :key="`hero-${movie.id}`" class="detail-hero-copy">
-        <div v-if="heroPosterUrl" class="detail-cover-card">
+        <button v-if="heroPosterUrl" class="detail-cover-card" :aria-label="`放大查看${movie.title}电影封面`" @click="openImage(imageUrl(movie.posterUrl || movie.poster_path), `${movie.title}电影封面`)">
           <img :src="heroPosterUrl" :alt="`${movie.title}电影封面`" />
-        </div>
+        </button>
         <p class="detail-original">{{ movie.originalTitle }}</p>
         <div class="detail-title-row">
           <h1>{{ movie.title }}</h1>
@@ -343,9 +366,8 @@ onBeforeUnmount(() => {
           <div class="section-heading"><h2>主要演职员</h2><small>导演与主演</small></div>
           <div class="people-rail">
             <article v-for="person in people" :key="`${person.id}-${person.role}`" class="person-card">
-              <div class="person-photo" :style="person.profile_path ? { backgroundImage: `url(${imageUrl(person.profile_path, 'w185')})` } : {}">
-                <UserRound v-if="!person.profile_path" :size="20" />
-              </div>
+              <button v-if="person.profile_path" class="person-photo" :style="{ backgroundImage: `url(${imageUrl(person.profile_path, 'w185')})` }" :aria-label="`放大查看${person.name}演员照片`" @click="openImage(imageUrl(person.profile_path, 'w500'), `${person.name} · ${person.role}`)"></button>
+              <div v-else class="person-photo"><UserRound :size="20" /></div>
               <strong>{{ person.name }}</strong>
               <span>{{ person.role }}</span>
             </article>
@@ -368,9 +390,9 @@ onBeforeUnmount(() => {
               <ChevronLeft :size="17" />
             </button>
             <div class="still-stage">
-              <figure :key="currentStill" class="still-main" :style="{ backgroundImage: `url(${imageUrl(currentStill, 'w780')})` }">
+              <button :key="currentStill" class="still-main" :style="{ backgroundImage: `url(${imageUrl(currentStill, 'w780')})` }" :aria-label="`放大查看第 ${activeStillIndex + 1} 张电影剧照`" @click="openImage(imageUrl(currentStill), `${movie.title} · 剧照 ${String(activeStillIndex + 1).padStart(2, '0')}`, 'contain')">
                 <span>{{ String(activeStillIndex + 1).padStart(2, '0') }}</span>
-              </figure>
+              </button>
               <figure v-if="nextStill" :key="nextStill" class="still-peek" :style="{ backgroundImage: `url(${imageUrl(nextStill, 'w780')})` }" aria-hidden="true"></figure>
             </div>
             <button class="still-arrow still-arrow--next" aria-label="下一张剧照" :disabled="movieStills.length < 2" @click="showStill(activeStillIndex + 1)">
@@ -428,6 +450,7 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </footer>
+    <ImageViewer v-if="viewerImage" v-bind="viewerImage" @close="viewerImage = null" />
   </article>
 </template>
 
@@ -457,6 +480,7 @@ onBeforeUnmount(() => {
 .detail-title-row{display:flex;align-items:end;justify-content:space-between;gap:12px}.detail-title-row h1{min-width:0;animation:title-rise .7s cubic-bezier(.16,1,.3,1) .09s both}.release-chip{display:flex;align-items:center;flex:0 0 auto;gap:4px;max-width:112px;padding:6px 8px;color:rgba(255,248,239,.82);border:1px solid rgba(255,255,255,.2);border-radius:999px;background:rgba(7,16,15,.3);box-shadow:inset 0 1px 0 rgba(255,255,255,.12);backdrop-filter:blur(14px);font-size:8px;white-space:nowrap;animation:title-rise .68s cubic-bezier(.16,1,.3,1) .18s both}.detail-original{animation:title-rise .62s cubic-bezier(.16,1,.3,1) .03s both}.detail-meta{animation:title-rise .66s cubic-bezier(.16,1,.3,1) .26s both}
 .score-actions .tmdb-score-card,.score-actions .trailer-card{min-width:0;min-height:108px}.score-actions .trailer-card{padding:13px;gap:8px}.score-actions .trailer-card i{flex-basis:38px;width:38px;height:38px}.score-actions .trailer-card:disabled{opacity:.76}.quick-facts span{flex:1 0 auto;justify-content:center}
 .people-rail{-webkit-overflow-scrolling:touch;pointer-events:auto;cursor:grab}.people-rail:active{cursor:grabbing}.stills-carousel{position:relative;margin-top:14px;touch-action:pan-y}.still-stage{display:flex;gap:10px;overflow:hidden}.still-stage figure{position:relative;height:150px;margin:0;overflow:hidden;border:1px solid rgba(255,255,255,.12);border-radius:16px;background:rgba(255,255,255,.04) center/cover no-repeat;box-shadow:0 10px 24px rgba(0,0,0,.22)}.still-main{flex:0 0 78%;animation:still-slide-in .36s cubic-bezier(.16,1,.3,1)}.still-peek{flex:1;min-width:0;opacity:.72;filter:saturate(.8)}.still-main::after{content:'';position:absolute;inset:45% 0 0;background:linear-gradient(transparent,rgba(4,10,10,.58))}.still-main span{position:absolute;z-index:1;right:10px;bottom:8px;color:rgba(255,255,255,.78);font:8px Georgia,serif;letter-spacing:.12em}.still-arrow{position:absolute;z-index:2;top:59px;display:grid;width:34px;height:34px;place-items:center;border:1px solid rgba(255,255,255,.32);border-radius:50%;color:#fff;background:rgba(5,12,13,.68);box-shadow:0 6px 18px rgba(0,0,0,.3);backdrop-filter:blur(10px);transition:transform .18s ease,background .18s ease}.still-arrow:hover{background:rgba(239,170,82,.88);transform:scale(1.06)}.still-arrow:disabled{opacity:.35}.still-arrow--prev{left:8px}.still-arrow--next{right:8px}.still-dots{display:flex;justify-content:center;gap:6px;margin-top:12px}.still-dots button{width:6px;height:6px;padding:0;border:0;border-radius:50%;background:rgba(255,255,255,.26);transition:width .22s ease,background .22s ease}.still-dots button.active{width:20px;border-radius:999px;background:#f2ad58}@keyframes still-slide-in{from{opacity:.2;transform:translateX(18px) scale(.985)}to{opacity:1;transform:none}}
+.detail-cover-card{padding:0;cursor:zoom-in}.person-card button.person-photo{padding:0;cursor:zoom-in;border:0;transition:transform .22s ease,filter .22s ease}.person-card button.person-photo:hover{filter:brightness(1.08);transform:translateY(-2px)}.still-stage .still-main{position:relative;height:150px;margin:0;padding:0;overflow:hidden;cursor:zoom-in;border:1px solid rgba(255,255,255,.12);border-radius:16px;background:rgba(255,255,255,.04) center/cover no-repeat;box-shadow:0 10px 24px rgba(0,0,0,.22)}
 @keyframes title-rise{from{opacity:0;filter:blur(6px);transform:translateY(20px)}to{opacity:1;filter:blur(0);transform:translateY(0)}}
 @media(max-width:390px){.detail-title-row{align-items:start;flex-direction:column;gap:9px}.release-chip{order:-1}.score-actions{grid-template-columns:1fr 1fr}.score-actions .trailer-card{gap:6px}.score-actions .trailer-card i{flex-basis:34px;width:34px;height:34px}}
 </style>

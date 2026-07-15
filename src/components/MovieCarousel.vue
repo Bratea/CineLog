@@ -101,10 +101,14 @@ function pointerMove(event) {
 function pointerUp() {
   if (dragStart.value === null) return
   const shouldOpenDetail = dragAxis.value === 'vertical' && (dragY.value < -58 || (dragY.value < -40 && dragVelocityY.value < -.72))
+  let horizontalSettle = null
   if (shouldOpenDetail) {
     beginDetailOpen(activeMovie.value)
   } else if (dragAxis.value === 'horizontal' && Math.abs(dragX.value) > 46) {
-    move(dragX.value > 0 ? -1 : 1)
+    const direction = dragX.value > 0 ? -1 : 1
+    horizontalSettle = dragX.value + direction * 300
+    move(direction)
+    dragX.value = horizontalSettle
   } else if (dragAxis.value === 'vertical' && dragY.value !== 0) {
     isReturning.value = true
     window.clearTimeout(returnTimer)
@@ -112,11 +116,15 @@ function pointerUp() {
   }
 
   dragStart.value = null
-  dragX.value = 0
   if (!isOpeningDetail.value) dragY.value = 0
   dragVelocityY.value = 0
   dragAxis.value = null
   isDragging.value = false
+  if (horizontalSettle !== null) {
+    nextTick(() => requestAnimationFrame(() => { dragX.value = 0 }))
+  } else {
+    dragX.value = 0
+  }
 }
 
 function beginDetailOpen(movie) {
@@ -369,13 +377,13 @@ onBeforeUnmount(() => {
 </template>
 
 <style lang="scss" scoped>
-.album { margin: 0; transform: translateY(12px); }
-.deck { position: relative; height: 394px; margin: 0 15px; overflow: hidden; border-radius: 30px; touch-action: none; user-select: none; perspective: 1250px; }
-.three-glow { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; opacity: .7; }
-.album-card { position: absolute; z-index: var(--z); bottom: 0; left: 50%; width: min(59vw, 258px); height: 378px; overflow: hidden; color: #fff; border: 1px solid rgba(255,255,255,.38); border-radius: calc(27px - var(--open-progress, 0) * 5px); box-shadow: 0 calc(19px + var(--open-progress, 0) * 12px) 30px rgba(9, 10, 14, calc(.19 + var(--open-progress, 0) * .13)); opacity: var(--opacity); transform-origin: center bottom; transform: translateX(calc(-50% + var(--x))) translateY(var(--lift)) rotateZ(var(--tilt)) rotateX(var(--open-tilt,0deg)) rotateY(calc(var(--rotate) * -.45)) scale(var(--scale)); filter: blur(var(--blur)); transition: transform 820ms cubic-bezier(.16, 1, .3, 1), opacity 620ms ease, filter 620ms ease, border-radius 420ms ease, box-shadow 420ms ease; will-change: transform; backface-visibility: hidden; animation: card-rise .82s cubic-bezier(.16, 1,.3, 1) both; }
+.album { position: relative; top: 12px; margin: 0; }
+.deck { position: relative; height: 384px; margin: 0 15px; overflow: hidden; border-radius: 30px; background: transparent; touch-action: none; user-select: none; perspective: 1250px; }
+.three-glow { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0; }
+.album-card { position: absolute; z-index: var(--z); bottom: 0; left: 50%; width: min(59vw, 258px); height: 378px; overflow: hidden; color: #fff; border: 1px solid rgba(255,255,255,.38); border-radius: calc(27px - var(--open-progress, 0) * 5px); box-shadow: 0 calc(19px + var(--open-progress, 0) * 12px) 30px rgba(9, 10, 14, calc(.19 + var(--open-progress, 0) * .13)); opacity: var(--opacity); transform-origin: center bottom; transform: translateX(calc(-50% + var(--x))) translateY(var(--lift)) rotateZ(var(--tilt)) rotateX(var(--open-tilt,0deg)) rotateY(calc(var(--rotate) * -.45)) scale(var(--scale)); filter: blur(var(--blur)); transition: transform 720ms cubic-bezier(.16, 1, .3, 1), opacity 520ms ease, filter 520ms ease, border-radius 420ms ease, box-shadow 420ms ease; will-change: transform; backface-visibility: hidden; animation: card-rise .62s cubic-bezier(.16, 1,.3, 1) both; }
 .album-card.active-card { cursor: ns-resize; }
 .dragging .album-card { transition: none; }
-.returning .album-card.active-card { transition:transform .62s cubic-bezier(.2,.86,.24,1.12),border-radius .42s ease,box-shadow .42s ease; }
+.returning .album-card.active-card { transition:transform .52s cubic-bezier(.16,1,.3,1),border-radius .38s ease,box-shadow .38s ease; }
 .opening-detail .album-card:not(.active-card) { opacity: 0 !important; transform: translateX(calc(-50% + var(--x))) translateY(34px) scale(.82); transition: transform .44s cubic-bezier(.3,.7,.25,1), opacity .3s ease; }
 .opening-detail .album-card.active-card { z-index: 6; border-radius: 17px; box-shadow: 0 38px 74px rgba(9,10,14,.42); animation:card-open-lift .5s cubic-bezier(.2,.72,.18,1) both; transition:border-radius .48s ease,box-shadow .48s ease; }
 .opening-detail .active-card .poster-image { animation:poster-open-lift .5s cubic-bezier(.2,.72,.18,1) both; }
@@ -418,7 +426,7 @@ onBeforeUnmount(() => {
 .dots { display: flex; gap: 7px; align-items: center; }
 .dots i { display: block; width: 7px; height: 7px; border-radius: 100px; background: #d7d8db; transition: all .35s ease; }
 .dots i.active { width: 19px; background: #17181b; }
-@keyframes card-rise { from { opacity: 0; transform: translateX(calc(-50% + var(--x))) translateY(38px) rotateZ(var(--tilt)) rotateY(calc(var(--rotate) * -.45)) scale(calc(var(--scale) * .95)); } }
+@keyframes card-rise { from { opacity: 0; transform: translateX(calc(-50% + var(--x))) translateY(18px) rotateZ(var(--tilt)) rotateY(calc(var(--rotate) * -.45)) scale(calc(var(--scale) * .985)); } }
 @keyframes card-open-lift { 0% { transform:translateX(calc(-50% + var(--x))) translateY(var(--lift)) rotateZ(var(--tilt)) rotateX(var(--open-tilt,0deg)) scale(var(--scale)); } 68% { transform:translateX(calc(-50% + var(--x))) translateY(-82px) rotateZ(0) rotateX(-.35deg) scale(1.145); } 100% { transform:translateX(calc(-50% + var(--x))) translateY(-74px) rotateZ(0) rotateX(0) scale(1.13); } }
 @keyframes poster-open-lift { 0% { transform:scale(1); filter:saturate(1); } 100% { transform:scale(1.045); filter:saturate(1.08); } }
 @keyframes card-info-release { 0% { opacity:1; transform:none; } 100% { opacity:.28; transform:translateY(12px); } }
@@ -428,8 +436,8 @@ onBeforeUnmount(() => {
 @keyframes pull-hint { 0%,100% { transform: translateY(2px); } 50% { transform: translateY(-2px); } }
 @media (prefers-reduced-motion: reduce) { .album-card, .dots i { transition: none; } }
 @media (max-height: 760px) {
-  .album { transform: translateY(8px); }
-  .deck { height: 340px; }
+  .album { top: 8px; }
+  .deck { height: 334px; }
   .album-card { height: 326px; }
   .album-info { padding-top: 44px; }
   .deck-footer { min-height: 30px; }

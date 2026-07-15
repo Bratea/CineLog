@@ -4,7 +4,7 @@ import { ChevronRight, Star } from 'lucide-vue-next'
 import cinematicAnimeCollage from '../assets/cinematic-anime-collage.png'
 
 defineProps({ movies: { type: Array, required: true } })
-const emit = defineEmits(['open-detail', 'mark-watched'])
+const emit = defineEmits(['open-detail', 'mark-watched', 'watch-warning'])
 const armedId = ref(null)
 const completingId = ref(null)
 let confirmTimer
@@ -25,6 +25,7 @@ function posterStyle(movie) {
 function confirmWatched(movie) {
   if (armedId.value !== movie.id) {
     armedId.value = movie.id
+    emit('watch-warning', movie)
     window.clearTimeout(confirmTimer)
     confirmTimer = window.setTimeout(() => { armedId.value = null }, 2400)
     return
