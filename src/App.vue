@@ -123,7 +123,7 @@ const settingsTransitionName = computed(() => settingsDirection.value === 'forwa
 const surfacePage = computed(() => currentPage.value === 'detail' ? detailOrigin.value : currentPage.value)
 const libraryYears = computed(() => [...new Set(movieRecords.value.map((movie) => movie.year))].sort().reverse())
 const libraryMediaTypes = computed(() => categorySettings.value.map((category) => category.label))
-const libraryGenres = computed(() => categorySettings.value.find((category) => category.label === libraryMediaType.value)?.children.map((child) => child.label) || [])
+const libraryGenres = computed(() => categorySettings.value.find((category) => category.label === libraryMediaType.value)?.children?.map((child) => child.label) || [])
 const visibleMediaTypes = computed(() => libraryMediaTypes.value.slice(0, Math.max(1, libraryTagLimit.value)))
 const libraryDateItems = computed(() => [
   { day: 11, week: '六' }, { day: 12, week: '日' }, { day: 13, week: '一' }, { day: 14, week: '二' },
@@ -183,6 +183,7 @@ function openDetail(movie) {
   detailOrigin.value = currentPage.value
   detailEntry.value = 'home'
   currentPage.value = 'detail'
+  ensureTmdbDetails(movie)
 }
 
 function openDetailFromPoster(movie, source) {
@@ -195,6 +196,7 @@ function openDetailFromPoster(movie, source) {
   if (!posterRect || !phoneRect) {
     selectedMovie.value = movie
     currentPage.value = 'detail'
+    ensureTmdbDetails(movie)
     return
   }
 
@@ -208,6 +210,7 @@ function openDetailFromPoster(movie, source) {
   window.setTimeout(() => {
     selectedMovie.value = movie
     currentPage.value = 'detail'
+    ensureTmdbDetails(movie)
   }, 190)
   window.setTimeout(() => { posterFlight.value = null }, 720)
 }
@@ -532,13 +535,20 @@ function addTmdbMovie(result) {
   }
   movieRecords.value.unshift({
     id: `tmdb-${result.id}`,
+    tmdbId: result.id,
     title: result.title || result.original_title,
     originalTitle: result.original_title || result.title,
     meta: `TMDB · ${addMediaType.value}`,
     year: result.release_date?.slice(0, 4) || '待定',
-    rating: addWatched.value && addRating.value ? addRating.value : (result.vote_average ? Number(result.vote_average.toFixed(1)) : null),
+    rating: addWatched.value && addRating.value ? addRating.value : null,
     personalRating: addWatched.value && addRating.value ? addRating.value : null,
+    tmdbRating: result.vote_average ? Number(result.vote_average.toFixed(1)) : null,
+    tmdbVoteCount: result.vote_count || 0,
+    releaseDate: result.release_date || '',
+    originalLanguage: result.original_language || '',
+    genreIds: result.genre_ids || [],
     watched: addWatched.value,
+    watchedDate: addWatched.value ? new Date().toISOString().slice(0, 10) : '',
     poster: 'tmdb',
     posterText: result.title || result.original_title,
     poster_path: result.poster_path,
@@ -551,6 +561,66 @@ function addTmdbMovie(result) {
   selectedTmdbResult.value = null
 }
 
+async function ensureTmdbDetails(movie) {
+  const rawId = movie?.tmdbId ?? (String(movie?.id || '').startsWith('tmdb-') ? String(movie.id).slice(5) : null)
+  if (!rawId || movie.detailState === 'loading' || movie.detailState === 'success') return
+  if (!tmdbToken.value.trim()) {
+    movie.detailState = 'error'
+    movie.detailError = '请先在设置中配置 TMDB API 密钥。'
+    return
+  }
+
+  movie.detailState = 'loading'
+  movie.detailError = ''
+  try {
+    const base = tmdbApiBase.value.trim().replace(/\/$/, '')
+    const request = tmdbRequest(`${base}/movie/${rawId}`, {
+      language: 'zh-CN',
+      append_to_response: 'credits,videos,release_dates',
+      include_video_language: 'zh,en,null',
+    })
+    const response = await fetch(request.url, request.options)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const detail = await response.json()
+    const director = detail.credits?.crew?.find((person) => person.job === 'Director')
+    const trailer = detail.videos?.results?.find((video) => video.site === 'YouTube' && video.type === 'Trailer' && video.official)
+      || detail.videos?.results?.find((video) => video.site === 'YouTube' && ['Trailer', 'Teaser'].includes(video.type))
+    const regionRelease = detail.release_dates?.results?.find((item) => item.iso_3166_1 === 'CN')
+      || detail.release_dates?.results?.find((item) => item.iso_3166_1 === 'US')
+    const certification = regionRelease?.release_dates?.find((item) => item.certification)?.certification || ''
+
+    Object.assign(movie, {
+      tmdbId: detail.id,
+      title: detail.title || movie.title,
+      originalTitle: detail.original_title || movie.originalTitle,
+      overview: detail.overview || movie.overview,
+      backdrop_path: detail.backdrop_path || movie.backdrop_path,
+      poster_path: detail.poster_path || movie.poster_path,
+      releaseDate: detail.release_date || movie.releaseDate,
+      year: detail.release_date?.slice(0, 4) || movie.year,
+      runtime: detail.runtime || null,
+      genres: detail.genres || [],
+      tagline: detail.tagline || '',
+      tmdbRating: detail.vote_average ? Number(detail.vote_average.toFixed(1)) : movie.tmdbRating,
+      tmdbVoteCount: detail.vote_count || movie.tmdbVoteCount || 0,
+      certification,
+      director: director ? { id: director.id, name: director.name, role: '导演', profile_path: director.profile_path } : null,
+      cast: (detail.credits?.cast || []).slice(0, 8).map((person) => ({
+        id: person.id,
+        name: person.name,
+        role: person.character || '演员',
+        profile_path: person.profile_path,
+      })),
+      trailer: trailer ? { key: trailer.key, name: trailer.name, site: trailer.site } : null,
+      detailState: 'success',
+    })
+    movie.meta = movie.genres.length ? movie.genres.map((genre) => genre.name).join(' · ') : movie.meta
+  } catch (error) {
+    movie.detailState = 'error'
+    movie.detailError = `详细资料加载失败（${error.message}）`
+  }
+}
+
 function updateWatched(value) {
   if (selectedMovie.value) selectedMovie.value.watched = value
 }
@@ -560,6 +630,7 @@ function navigateDetail(direction) {
   if (currentIndex < 0 || movieRecords.value.length < 2) return
   const nextIndex = (currentIndex + direction + movieRecords.value.length) % movieRecords.value.length
   selectedMovie.value = movieRecords.value[nextIndex]
+  ensureTmdbDetails(selectedMovie.value)
 }
 </script>
 
@@ -771,7 +842,7 @@ function navigateDetail(direction) {
                     <section class="tmdb-info-card"><div class="tmdb-card-title"><span>影片介绍</span><small>{{ selectedTmdbResult.release_date?.slice(0, 4) || '年份待定' }}</small></div><p>{{ selectedTmdbResult.overview || '暂无剧情简介。' }}</p></section>
                     <section class="tmdb-add-card">
                       <div class="tmdb-card-title"><span>添加设置</span><small>完善你的记录</small></div>
-                      <label class="tmdb-field"><span>类型</span><select v-model="addMediaType"><option>电影</option><option>电视剧</option><option>动画</option><option>纪录片</option><option>综艺</option></select></label>
+                      <label class="tmdb-field"><span>类型</span><select v-model="addMediaType"><option v-for="type in libraryMediaTypes" :key="type">{{ type }}</option></select></label>
                       <label class="tmdb-watch-toggle"><span><strong>是否已观看</strong><small>{{ addWatched ? '记录评分与观后感' : '加入待看清单' }}</small></span><input v-model="addWatched" type="checkbox" /><i aria-hidden="true"></i></label>
                       <Transition name="watched-fields"><div v-if="addWatched" class="tmdb-watched-fields"><div class="tmdb-rating"><span>个人评分</span><div><button v-for="score in 5" :key="score" type="button" :class="{ selected: addRating >= score * 2 }" :aria-label="`${score * 2} 分`" @click="addRating = score * 2"><Star :size="18" /></button><strong>{{ addRating || '—' }}<small>/ 10</small></strong></div></div><label class="tmdb-review"><span>个人评价</span><textarea v-model="addReview" rows="3" placeholder="写下看完后的感受……"></textarea></label></div></Transition>
                       <button class="tmdb-confirm-add" @click="addTmdbMovie(selectedTmdbResult)"><Check :size="15" />确认添加</button>

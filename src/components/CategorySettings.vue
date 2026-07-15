@@ -1,5 +1,5 @@
 <script setup>
-import { nextTick, onBeforeUnmount, ref } from 'vue'
+import { onBeforeUnmount, ref } from 'vue'
 import { GripVertical, Plus, X } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -12,6 +12,7 @@ const activeId = ref(props.categories[0]?.id || '')
 const newCategoryName = ref('')
 const dragState = ref(null)
 let holdTimer
+let pendingHold
 
 function cloneCategories() {
   return props.categories.map((category) => ({
@@ -49,6 +50,7 @@ function startHold(event, type, id) {
   const pointerId = event.pointerId
   const startX = event.clientX
   const startY = event.clientY
+  pendingHold = { startX, startY }
   holdTimer = window.setTimeout(() => {
     dragState.value = { type, id, pointerId, startX, startY }
     event.currentTarget?.setPointerCapture?.(pointerId)
@@ -79,18 +81,19 @@ function moveHold(event) {
     const [moved] = active.children.splice(from, 1)
     active.children.splice(to, 0, moved)
   }
-  dragState.value = { ...drag, id: targetId }
   emit('update:categories', categories)
 }
 
 function endHold() {
   clearTimeout(holdTimer)
+  pendingHold = null
   dragState.value = null
 }
 
 function cancelHold(event) {
-  if (!dragState.value && Math.hypot(event.clientX - (event.currentTarget?._holdX || event.clientX), event.clientY - (event.currentTarget?._holdY || event.clientY)) > 8) {
+  if (!dragState.value && pendingHold && Math.hypot(event.clientX - pendingHold.startX, event.clientY - pendingHold.startY) > 8) {
     clearTimeout(holdTimer)
+    pendingHold = null
   }
 }
 
