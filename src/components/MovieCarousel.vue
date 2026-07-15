@@ -369,10 +369,10 @@ onBeforeUnmount(() => {
 </template>
 
 <style lang="scss" scoped>
-.album { margin: 0; }
-.deck { position: relative; height: 374px; margin: 0 15px; overflow: hidden; border-radius: 30px; touch-action: none; user-select: none; perspective: 1250px; }
+.album { margin: 0; transform: translateY(12px); }
+.deck { position: relative; height: 394px; margin: 0 15px; overflow: hidden; border-radius: 30px; touch-action: none; user-select: none; perspective: 1250px; }
 .three-glow { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; opacity: .7; }
-.album-card { position: absolute; z-index: var(--z); bottom: 0; left: 50%; width: min(69vw, 302px); height: 358px; overflow: hidden; color: #fff; border: 1px solid rgba(255,255,255,.38); border-radius: calc(27px - var(--open-progress, 0) * 5px); box-shadow: 0 calc(19px + var(--open-progress, 0) * 12px) 30px rgba(9, 10, 14, calc(.19 + var(--open-progress, 0) * .13)); opacity: var(--opacity); transform-origin: center bottom; transform: translateX(calc(-50% + var(--x))) translateY(var(--lift)) rotateZ(var(--tilt)) rotateX(var(--open-tilt,0deg)) rotateY(calc(var(--rotate) * -.45)) scale(var(--scale)); filter: blur(var(--blur)); transition: transform 820ms cubic-bezier(.16, 1, .3, 1), opacity 620ms ease, filter 620ms ease, border-radius 420ms ease, box-shadow 420ms ease; will-change: transform; backface-visibility: hidden; animation: card-rise .82s cubic-bezier(.16, 1,.3, 1) both; }
+.album-card { position: absolute; z-index: var(--z); bottom: 0; left: 50%; width: min(59vw, 258px); height: 378px; overflow: hidden; color: #fff; border: 1px solid rgba(255,255,255,.38); border-radius: calc(27px - var(--open-progress, 0) * 5px); box-shadow: 0 calc(19px + var(--open-progress, 0) * 12px) 30px rgba(9, 10, 14, calc(.19 + var(--open-progress, 0) * .13)); opacity: var(--opacity); transform-origin: center bottom; transform: translateX(calc(-50% + var(--x))) translateY(var(--lift)) rotateZ(var(--tilt)) rotateX(var(--open-tilt,0deg)) rotateY(calc(var(--rotate) * -.45)) scale(var(--scale)); filter: blur(var(--blur)); transition: transform 820ms cubic-bezier(.16, 1, .3, 1), opacity 620ms ease, filter 620ms ease, border-radius 420ms ease, box-shadow 420ms ease; will-change: transform; backface-visibility: hidden; animation: card-rise .82s cubic-bezier(.16, 1,.3, 1) both; }
 .album-card.active-card { cursor: ns-resize; }
 .dragging .album-card { transition: none; }
 .returning .album-card.active-card { transition:transform .62s cubic-bezier(.2,.86,.24,1.12),border-radius .42s ease,box-shadow .42s ease; }
@@ -382,7 +382,6 @@ onBeforeUnmount(() => {
 .opening-detail .active-card .album-info { animation:card-info-release .36s ease-out both; }
 .opening-detail .three-glow { opacity:.18; transform:scale(1.05); transition:opacity .42s ease,transform .5s cubic-bezier(.2,.72,.18,1); }
 .poster-image { position: absolute; inset: 0; overflow: hidden; background-color: #111318; background-size: cover; background-position: center; background-repeat: no-repeat; }
-.poster-image::before { content: ''; position: absolute; z-index: 0; inset: 0; background-image: inherit; background-size: contain; background-position: center; background-repeat: no-repeat; }
 .poster-image::after { content: ''; position: absolute; z-index: 1; inset: 40% 0 0; background: linear-gradient(180deg, transparent 0%, rgba(7, 9, 12, .04) 28%, rgba(7, 9, 12, .42) 72%, rgba(7, 9, 12, .68) 100%); }
 .album-card--pop .poster-image { background-image: radial-gradient(circle at 60% 20%, #ffcc74 0 7%, transparent 8%), linear-gradient(155deg, #4bb5cd, #1c4e80 50%, #061425); }
 .album-card--crayon .poster-image { background-image: radial-gradient(circle at 25% 20%, #ffde68 0 11%, transparent 12%), linear-gradient(155deg, #61c1de, #eca55c 51%, #b33730); }
@@ -415,7 +414,7 @@ onBeforeUnmount(() => {
 .empty-deck svg { box-sizing: content-box; padding: 9px; color: #1f5f42; border-radius: 50%; background: #dff4e8; }
 .empty-deck h3 { margin: 4px 0 0; font-size: 15px; }
 .empty-deck p { margin: 0; color: #95969b; font-size: 10px; }
-.deck-footer { display: flex; align-items: center; justify-content: center; min-height: 39px; }
+.deck-footer { display: flex; align-items: center; justify-content: center; min-height: 31px; }
 .dots { display: flex; gap: 7px; align-items: center; }
 .dots i { display: block; width: 7px; height: 7px; border-radius: 100px; background: #d7d8db; transition: all .35s ease; }
 .dots i.active { width: 19px; background: #17181b; }
@@ -429,8 +428,9 @@ onBeforeUnmount(() => {
 @keyframes pull-hint { 0%,100% { transform: translateY(2px); } 50% { transform: translateY(-2px); } }
 @media (prefers-reduced-motion: reduce) { .album-card, .dots i { transition: none; } }
 @media (max-height: 760px) {
-  .deck { height: 318px; }
-  .album-card { height: 304px; }
+  .album { transform: translateY(8px); }
+  .deck { height: 340px; }
+  .album-card { height: 326px; }
   .album-info { padding-top: 44px; }
   .deck-footer { min-height: 30px; }
 }

@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
-import { ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, ExternalLink, FolderTree, HardDrive, House, LayoutPanelTop, Search, SlidersHorizontal, Star, Upload, X } from 'lucide-vue-next'
+import { ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, ExternalLink, FolderTree, HardDrive, House, LayoutPanelTop, RefreshCw, Search, SlidersHorizontal, Star, Upload, X } from 'lucide-vue-next'
 import MovieCarousel from './components/MovieCarousel.vue'
 import MovieList from './components/MovieList.vue'
 import MovieDetail from './components/MovieDetail.vue'
@@ -84,6 +84,7 @@ const tmdbToken = ref(localStorage.getItem('movie-tmdb-token') || '')
 const tmdbApiBase = ref(localStorage.getItem('movie-tmdb-api-base') || 'https://api.themoviedb.org/3')
 const tmdbImageBase = ref(localStorage.getItem('movie-tmdb-image-base') || 'https://image.tmdb.org/t/p')
 const tmdbNetworkMode = ref(localStorage.getItem('movie-tmdb-network-mode') || 'hosts')
+const tmdbEndpointRefreshState = ref('idle')
 const tmdbTestState = ref('idle')
 const tmdbTestMessage = ref('')
 const expandedLibraryId = ref(null)
@@ -122,6 +123,7 @@ const libraryUnwatchedFirst = ref(localStorage.getItem('movie-library-unwatched-
 const libraryDateBasis = ref(localStorage.getItem('movie-library-date-basis') || 'record')
 const libraryMediaType = ref('电影')
 const libraryTagLimit = ref(Number(localStorage.getItem('movie-library-tag-limit')) || 5)
+const libraryControlsSide = ref(localStorage.getItem('movie-library-controls-side') === 'right' ? 'right' : 'left')
 const libraryDateExpanded = ref(false)
 const libraryMediaMenuOpen = ref(false)
 const librarySearchOpen = ref(false)
@@ -279,10 +281,17 @@ watch([username, avatarUrl, profileBackgroundColor, avatarRingColor], () => {
   if (profileSaveState.value === 'saved') profileSaveState.value = 'dirty'
 })
 watch(tmdbToken, (value) => localStorage.setItem('movie-tmdb-token', value.trim()))
-watch(tmdbApiBase, (value) => localStorage.setItem('movie-tmdb-api-base', value.trim()))
-watch(tmdbImageBase, (value) => localStorage.setItem('movie-tmdb-image-base', value.trim()))
+watch(tmdbApiBase, (value) => {
+  localStorage.setItem('movie-tmdb-api-base', value.trim())
+  if (tmdbNetworkMode.value === 'custom') localStorage.setItem('movie-tmdb-custom-api-base', value.trim())
+})
+watch(tmdbImageBase, (value) => {
+  localStorage.setItem('movie-tmdb-image-base', value.trim())
+  if (tmdbNetworkMode.value === 'custom') localStorage.setItem('movie-tmdb-custom-image-base', value.trim())
+})
 watch(tmdbNetworkMode, (value) => localStorage.setItem('movie-tmdb-network-mode', value))
 watch(libraryTagLimit, (value) => localStorage.setItem('movie-library-tag-limit', String(value)))
+watch(libraryControlsSide, (value) => localStorage.setItem('movie-library-controls-side', value))
 watch(librarySortBy, (value) => localStorage.setItem('movie-library-sort', value))
 watch(libraryUnwatchedFirst, (value) => localStorage.setItem('movie-library-unwatched-first', String(value)))
 watch(libraryDateBasis, (value) => localStorage.setItem('movie-library-date-basis', value))
@@ -432,6 +441,31 @@ async function testTmdbConnection() {
     tmdbTestState.value = 'error'
     tmdbTestMessage.value = `连接失败（${error.message}），请检查 Token、地址或 hosts。`
   }
+}
+
+function refreshTmdbEndpoints() {
+  if (tmdbNetworkMode.value === 'hosts') {
+    tmdbApiBase.value = 'https://api.themoviedb.org/3'
+    tmdbImageBase.value = 'https://image.tmdb.org/t/p'
+  } else {
+    const customApi = localStorage.getItem('movie-tmdb-custom-api-base')
+    const customImage = localStorage.getItem('movie-tmdb-custom-image-base')
+    if (customApi) tmdbApiBase.value = customApi
+    if (customImage) tmdbImageBase.value = customImage
+  }
+  tmdbTestState.value = 'idle'
+  tmdbTestMessage.value = ''
+  tmdbEndpointRefreshState.value = 'refreshed'
+  window.setTimeout(() => { tmdbEndpointRefreshState.value = 'idle' }, 1400)
+}
+
+function switchTmdbNetworkMode(mode) {
+  if (tmdbNetworkMode.value === 'custom') {
+    localStorage.setItem('movie-tmdb-custom-api-base', tmdbApiBase.value.trim())
+    localStorage.setItem('movie-tmdb-custom-image-base', tmdbImageBase.value.trim())
+  }
+  tmdbNetworkMode.value = mode
+  refreshTmdbEndpoints()
 }
 
 function tmdbRequest(url, params = {}) {
@@ -946,7 +980,7 @@ function navigateDetail(direction) {
           </div>
         </header>
 
-        <section class="record-stage" :class="{ 'list-stage': viewMode === 'list' }" aria-labelledby="recent-heading">
+        <section class="record-stage" :class="[{ 'list-stage': viewMode === 'list' }, `is-${activeWatchStat}`]" aria-labelledby="recent-heading">
           <div class="stage-heading surface-piece" style="--piece-order: 1">
             <div>
               <h2 id="recent-heading">{{ activeWatchStat === 'watched' ? '已观看' : '未观看' }}</h2>
@@ -975,7 +1009,7 @@ function navigateDetail(direction) {
         </section>
         </section>
 
-        <section v-else-if="surfacePage === 'library'" key="library" class="surface-view library-surface" aria-label="电影列表页面" @click="dismissLibraryPopovers">
+        <section v-else-if="surfacePage === 'library'" key="library" class="surface-view library-surface" :class="`tools-${libraryControlsSide}`" aria-label="电影列表页面" @click="dismissLibraryPopovers">
           <Transition name="library-notice">
             <aside v-if="libraryNotice" :key="`${libraryNotice.title}-${libraryNotice.message}`" class="library-confirm-notice" role="status" aria-live="polite"><span>!</span><div><strong>{{ libraryNotice.title }}</strong><p>{{ libraryNotice.message }}</p></div></aside>
           </Transition>
@@ -1025,11 +1059,13 @@ function navigateDetail(direction) {
           </Transition>
 
           <div class="library-filter-bar surface-piece" style="--piece-order: 2" role="group" aria-label="片库快捷筛选">
-            <div class="library-chip-scroll">
+            <div class="library-edge-tools">
               <button class="library-search-chip" :class="{ selected: librarySearchOpen }" aria-label="打开搜索" @click="toggleLibrarySearch"><Search :size="13" /></button>
+              <button class="category-chip" aria-label="打开更多分类" @click="categoryOpen = true"><small>更多</small><strong>分类</strong><ChevronRight :size="13" /></button>
+            </div>
+            <div class="library-chip-scroll">
               <button v-for="genre in visibleLibraryGenres" :key="genre" :class="{ selected: libraryGenre === genre }" @click="libraryGenre = genre">{{ genre === 'all' ? '全部类型' : genre }}</button>
             </div>
-            <button class="category-chip" aria-label="打开更多分类" @click="categoryOpen = true"><small>更多</small><strong>分类</strong><ChevronRight :size="13" /></button>
           </div>
 
           <div class="library-timeline surface-piece" :class="{ searching: librarySearchOpen }" style="--piece-order: 3">
@@ -1140,11 +1176,12 @@ function navigateDetail(direction) {
                     <section class="tmdb-add-card">
                       <div class="tmdb-card-title"><span>添加设置</span><small>完善你的记录</small></div>
                       <div class="tmdb-field"><span>类型</span><div class="tmdb-media-select"><button type="button" class="tmdb-media-select__trigger" :class="{ open: addMediaMenuOpen }" aria-haspopup="listbox" :aria-expanded="addMediaMenuOpen" @click="addMediaMenuOpen = !addMediaMenuOpen"><span>{{ addMediaType }}</span><ChevronDown :size="14" /></button><Transition name="media-menu"><div v-if="addMediaMenuOpen" class="tmdb-media-select__menu" role="listbox" aria-label="选择内容类型"><button v-for="type in libraryMediaTypes" :key="type" type="button" role="option" :aria-selected="addMediaType === type" :class="{ selected: addMediaType === type }" @click="chooseAddMediaType(type)"><span>{{ type }}</span><Check v-if="addMediaType === type" :size="13" /></button></div></Transition></div></div>
-                      <div class="tmdb-watch-row" :class="{ watched: addWatched }"><label class="tmdb-watch-toggle"><span><strong>是否已观看</strong><small>{{ addWatched ? '记录评分与观后感' : '加入待看清单' }}</small></span><input v-model="addWatched" type="checkbox" @change="handleAddWatchedChange" /><i aria-hidden="true"></i></label><Transition name="watch-date"><div v-if="addWatched" class="tmdb-watch-date-wrap"><button type="button" class="tmdb-watch-date" :class="{ open: addDatePickerOpen }" aria-haspopup="dialog" :aria-expanded="addDatePickerOpen" @click="toggleWatchedDatePicker"><span><small>观看日期</small><strong>{{ addWatchedDateLabel }}</strong></span><ChevronDown :size="13" /></button><Transition name="date-calendar"><section v-if="addDatePickerOpen" class="tmdb-date-calendar" role="dialog" aria-label="选择观看日期"><header><strong>{{ addDateTitle }}</strong><div><button type="button" aria-label="上个月" @click.stop="moveAddDateMonth(-1)"><ChevronLeft :size="14" /></button><button type="button" aria-label="下个月" @click.stop="moveAddDateMonth(1)"><ChevronRight :size="14" /></button></div></header><div class="tmdb-date-week" aria-hidden="true"><span v-for="weekday in ['日', '一', '二', '三', '四', '五', '六']" :key="weekday">{{ weekday }}</span></div><div class="tmdb-date-grid"><button v-for="date in addDateCalendarDays" :key="date.value" type="button" :class="{ outside: !date.currentMonth, today: date.today, selected: addWatchedDate === date.value }" :aria-label="date.value" :aria-pressed="addWatchedDate === date.value" @click.stop="selectAddWatchedDate(date.value)">{{ date.day }}</button></div><footer><button type="button" @click.stop="clearAddWatchedDate">清除</button><button type="button" @click.stop="selectAddWatchedToday">今天</button></footer></section></Transition></div></Transition></div>
+                      <div class="tmdb-watch-row" :class="{ watched: addWatched }"><label class="tmdb-watch-toggle"><span><strong>是否已观看</strong><small>{{ addWatched ? '记录评分与观后感' : '加入待看清单' }}</small></span><input v-model="addWatched" type="checkbox" @change="handleAddWatchedChange" /><i aria-hidden="true"></i></label><Transition name="watch-date"><div v-if="addWatched" class="tmdb-watch-date-wrap"><button type="button" class="tmdb-watch-date" :class="{ open: addDatePickerOpen }" aria-haspopup="dialog" :aria-expanded="addDatePickerOpen" @click="toggleWatchedDatePicker"><span><small>观看日期</small><strong>{{ addWatchedDateLabel }}</strong></span><ChevronDown :size="13" /></button></div></Transition></div>
                       <Transition name="watched-fields"><div v-if="addWatched" class="tmdb-watched-fields"><div class="tmdb-rating"><span>个人评分</span><div><button v-for="score in 5" :key="score" type="button" :class="{ selected: addRating >= score * 2 }" :aria-label="`${score * 2} 分`" @click="addRating = score * 2"><Star :size="18" /></button><strong>{{ addRating || '—' }}<small>/ 10</small></strong></div></div><label class="tmdb-review"><span>个人评价</span><textarea v-model="addReview" rows="3" placeholder="写下看完后的感受……"></textarea></label></div></Transition>
                       <button class="tmdb-confirm-add" @click="addTmdbMovie(selectedTmdbResult)"><Check :size="15" />确认添加</button>
                     </section>
                   </div>
+                  <Transition name="date-calendar"><div v-if="addDatePickerOpen" class="tmdb-date-calendar-backdrop" @click.self="addDatePickerOpen = false"><section class="tmdb-date-calendar" role="dialog" aria-modal="true" aria-label="选择观看日期"><header><strong>{{ addDateTitle }}</strong><div><button type="button" aria-label="上个月" @click="moveAddDateMonth(-1)"><ChevronLeft :size="14" /></button><button type="button" aria-label="下个月" @click="moveAddDateMonth(1)"><ChevronRight :size="14" /></button></div></header><div class="tmdb-date-week" aria-hidden="true"><span v-for="weekday in ['日', '一', '二', '三', '四', '五', '六']" :key="weekday">{{ weekday }}</span></div><div class="tmdb-date-grid"><button v-for="date in addDateCalendarDays" :key="date.value" type="button" :class="{ outside: !date.currentMonth, today: date.today, selected: addWatchedDate === date.value }" :aria-label="date.value" :aria-pressed="addWatchedDate === date.value" @click="selectAddWatchedDate(date.value)">{{ date.day }}</button></div><footer><button type="button" @click="clearAddWatchedDate">清除</button><button type="button" @click="selectAddWatchedToday">今天</button></footer></section></div></Transition>
                 </section>
               </div>
             </Transition>
