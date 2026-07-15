@@ -1,6 +1,6 @@
 <script setup>
-import { nextTick, onBeforeUnmount, ref } from 'vue'
-import { GripVertical, Plus, X } from 'lucide-vue-next'
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
+import { ChevronLeft, ChevronRight, GripVertical, Plus, X } from 'lucide-vue-next'
 
 const props = defineProps({
   categories: { type: Array, required: true },
@@ -9,13 +9,20 @@ const props = defineProps({
 const emit = defineEmits(['update:categories'])
 
 const activeId = ref(props.categories[0]?.id || '')
-const newCategoryName = ref('')
+const newParentName = ref('')
+const newTagName = ref('')
 const dragState = ref(null)
 const selectedChildId = ref('')
 const addOpen = ref(false)
-const addInput = ref(null)
+const parentAddInput = ref(null)
+const page = ref(1)
+const pageSize = 10
 let holdTimer
 let pendingHold
+
+const activeCategory = computed(() => props.categories.find((category) => category.id === activeId.value))
+const pageCount = computed(() => Math.max(1, Math.ceil((activeCategory.value?.children.length || 0) / pageSize)))
+const paginatedChildren = computed(() => activeCategory.value?.children.slice((page.value - 1) * pageSize, page.value * pageSize) || [])
 
 function cloneCategories() {
   return props.categories.map((category) => ({
@@ -29,6 +36,7 @@ function setActive(id) {
     activeId.value = id
     selectedChildId.value = ''
     addOpen.value = false
+    page.value = 1
   }
 }
 
@@ -36,7 +44,7 @@ async function toggleAdd() {
   addOpen.value = !addOpen.value
   if (addOpen.value) {
     await nextTick()
-    addInput.value?.focus()
+    parentAddInput.value?.focus()
   }
 }
 
@@ -44,17 +52,31 @@ function selectChild(id) {
   if (!dragState.value) selectedChildId.value = id
 }
 
-function addCategory() {
-  const label = newCategoryName.value.trim()
+function addParentCategory() {
+  const label = newParentName.value.trim()
+  if (!label || props.categories.some((category) => category.label === label)) return
+  const categories = cloneCategories()
+  const parentId = `custom-group-${Date.now()}`
+  categories.push({ id: parentId, label, source: 'custom', children: [] })
+  activeId.value = parentId
+  newParentName.value = ''
+  selectedChildId.value = ''
+  page.value = 1
+  addOpen.value = false
+  emit('update:categories', categories)
+}
+
+function addTag() {
+  const label = newTagName.value.trim()
   if (!label || !activeId.value) return
   const categories = cloneCategories()
   const active = categories.find((category) => category.id === activeId.value)
   if (!active || active.children.some((child) => child.label === label)) return
   const childId = `custom-${Date.now()}`
   active.children.push({ id: childId, label, source: 'custom' })
-  newCategoryName.value = ''
+  newTagName.value = ''
   selectedChildId.value = childId
-  addOpen.value = false
+  page.value = Math.max(1, Math.ceil(active.children.length / pageSize))
   emit('update:categories', categories)
 }
 
@@ -64,7 +86,13 @@ function removeCategory(childId) {
   if (!active) return
   active.children = active.children.filter((child) => child.id !== childId)
   if (selectedChildId.value === childId) selectedChildId.value = ''
+  page.value = Math.min(page.value, Math.max(1, Math.ceil(active.children.length / pageSize)))
   emit('update:categories', categories)
+}
+
+function changePage(nextPage) {
+  page.value = Math.min(pageCount.value, Math.max(1, nextPage))
+  selectedChildId.value = ''
 }
 
 function startHold(event, type, id) {
@@ -152,14 +180,21 @@ onBeforeUnmount(() => clearTimeout(holdTimer))
       <button class="category-add-toggle" :class="{ open: addOpen }" type="button" aria-label="添加分类" :aria-expanded="addOpen" @click="toggleAdd"><Plus :size="18" /></button>
     </div>
 
-    <section v-for="category in categories" v-show="activeId === category.id" :key="category.id" class="category-child-section">
+    <Transition name="category-add">
+      <form v-if="addOpen" class="category-parent-add-form" @submit.prevent="addParentCategory">
+        <input ref="parentAddInput" v-model="newParentName" maxlength="12" placeholder="添加大分类，例如：纪录片" aria-label="大分类名称" />
+        <button type="submit" :disabled="!newParentName.trim()"><Plus :size="16" />添加大分类</button>
+      </form>
+    </Transition>
+
+    <section v-if="activeCategory" class="category-child-section">
       <header>
-        <div><strong>{{ category.label }}分类</strong><span>{{ category.children.length }} 个</span></div>
+        <div><strong>{{ activeCategory.label }}分类</strong><span>{{ activeCategory.children.length }} 个</span></div>
         <small>长按任意分类拖动</small>
       </header>
       <div class="category-child-list">
         <div
-          v-for="child in category.children"
+          v-for="child in paginatedChildren"
           :key="child.id"
           :data-drag-id="child.id"
           data-drag-type="child"
@@ -175,13 +210,18 @@ onBeforeUnmount(() => clearTimeout(holdTimer))
           <button v-if="child.source === 'custom'" :aria-label="`删除${child.label}`" @pointerdown.stop @click.stop="removeCategory(child.id)"><X :size="14" /></button>
         </div>
       </div>
-    </section>
 
-    <Transition name="category-add">
-      <form v-if="addOpen" class="category-add-form" @submit.prevent="addCategory">
-        <input ref="addInput" v-model="newCategoryName" maxlength="12" :placeholder="`添加${categories.find((item) => item.id === activeId)?.label || ''}分类`" aria-label="自定义分类名称" />
-        <button type="submit" :disabled="!newCategoryName.trim()"><Plus :size="16" />添加</button>
+      <nav class="category-pagination" :aria-label="`${activeCategory.label}分类分页`">
+        <button type="button" aria-label="上一页" :disabled="page <= 1" @click="changePage(page - 1)"><ChevronLeft :size="15" /></button>
+        <span><strong>{{ page }}</strong><small>/ {{ pageCount }}</small></span>
+        <em>每页 {{ pageSize }} 个</em>
+        <button type="button" aria-label="下一页" :disabled="page >= pageCount" @click="changePage(page + 1)"><ChevronRight :size="15" /></button>
+      </nav>
+
+      <form class="category-tag-add-form" @submit.prevent="addTag">
+        <input v-model="newTagName" maxlength="12" :placeholder="`添加${activeCategory.label}标签`" aria-label="标签名称" />
+        <button type="submit" :disabled="!newTagName.trim()"><Plus :size="15" />添加标签</button>
       </form>
-    </Transition>
+    </section>
   </div>
 </template>

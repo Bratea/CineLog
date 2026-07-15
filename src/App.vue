@@ -70,6 +70,8 @@ const addRating = ref(0)
 const addReview = ref('')
 const recordClosing = ref(false)
 const libraryWatchFilter = ref('all')
+const librarySortBy = ref(localStorage.getItem('movie-library-sort') || 'release')
+const libraryUnwatchedFirst = ref(localStorage.getItem('movie-library-unwatched-first') !== 'false')
 const libraryMediaType = ref('电影')
 const libraryTagLimit = ref(Number(localStorage.getItem('movie-library-tag-limit')) || 5)
 const libraryDateExpanded = ref(false)
@@ -134,15 +136,28 @@ const activeCategoryLabel = computed(() => {
 const libraryStatusTitle = computed(() => ({ all: '全部', watched: '已观看', unwatched: '未观看', favourite: '收藏' })[libraryWatchFilter.value])
 const libraryStatusFrames = computed(() => [libraryStatusTitle.value])
 const libraryMediaFrames = computed(() => [libraryMediaType.value])
+const libraryWatchStates = computed(() => [
+  { value: 'all', label: '全部', count: movieRecords.value.length },
+  { value: 'watched', label: '已看', count: watchedCount.value },
+  { value: 'unwatched', label: '未看', count: unwatchedCount.value },
+])
+const activeLibraryWatchState = computed(() => libraryWatchStates.value.find((state) => state.value === libraryWatchFilter.value) || libraryWatchStates.value[0])
 const libraryMovies = computed(() => {
   const keyword = libraryQuery.value.trim().toLocaleLowerCase('zh-CN')
-  return movieRecords.value.filter((movie) => {
+  const filtered = movieRecords.value.filter((movie) => {
     const matchesQuery = !keyword || `${movie.title} ${movie.originalTitle} ${movie.meta}`.toLocaleLowerCase('zh-CN').includes(keyword)
     const matchesYear = libraryYear.value === 'all' || movie.year === libraryYear.value
     const matchesGenre = libraryGenre.value === 'all' || movie.meta.split('·').map((genre) => genre.trim()).includes(libraryGenre.value)
     const matchesWatch = libraryWatchFilter.value === 'all' || (libraryWatchFilter.value === 'watched' ? movie.watched : libraryWatchFilter.value === 'unwatched' ? !movie.watched : movie.favourite)
     const matchesMedia = libraryMediaType.value === '电影' || (['动画', '动漫'].includes(libraryMediaType.value) && movie.meta.includes('动画')) || movie.meta.includes(libraryMediaType.value)
     return matchesQuery && matchesYear && matchesGenre && matchesWatch && matchesMedia
+  })
+  return filtered.sort((a, b) => {
+    if (libraryWatchFilter.value === 'all' && libraryUnwatchedFirst.value && a.watched !== b.watched) return Number(a.watched) - Number(b.watched)
+    if (librarySortBy.value === 'name') return a.title.localeCompare(b.title, 'zh-CN')
+    if (librarySortBy.value === 'rating') return (b.rating ?? -1) - (a.rating ?? -1)
+    if (librarySortBy.value === 'personal') return (b.personalRating ?? -1) - (a.personalRating ?? -1)
+    return String(b.releaseDate || b.release_date || b.year || '').localeCompare(String(a.releaseDate || a.release_date || a.year || '')) || b.id - a.id
   })
 })
 
@@ -155,6 +170,8 @@ watch(tmdbApiBase, (value) => localStorage.setItem('movie-tmdb-api-base', value.
 watch(tmdbImageBase, (value) => localStorage.setItem('movie-tmdb-image-base', value.trim()))
 watch(tmdbNetworkMode, (value) => localStorage.setItem('movie-tmdb-network-mode', value))
 watch(libraryTagLimit, (value) => localStorage.setItem('movie-library-tag-limit', String(value)))
+watch(librarySortBy, (value) => localStorage.setItem('movie-library-sort', value))
+watch(libraryUnwatchedFirst, (value) => localStorage.setItem('movie-library-unwatched-first', String(value)))
 watch(categorySettings, (value) => localStorage.setItem('movie-category-settings', JSON.stringify(value)), { deep: true })
 watch(libraryMediaTypes, (types) => {
   if (!types.includes(libraryMediaType.value)) libraryMediaType.value = types[0] || '电影'
@@ -183,6 +200,11 @@ function openDetail(movie) {
   detailEntry.value = 'home'
   currentPage.value = 'detail'
   ensureTmdbDetails(movie)
+}
+
+function cycleLibraryWatchFilter() {
+  const index = libraryWatchStates.value.findIndex((state) => state.value === libraryWatchFilter.value)
+  libraryWatchFilter.value = libraryWatchStates.value[(index + 1) % libraryWatchStates.value.length].value
 }
 
 function openDetailFromPoster(movie, source) {
@@ -779,17 +801,12 @@ function navigateDetail(direction) {
               </div>
             </aside>
             <div class="library-status-stack" role="group" aria-label="观看状态筛选">
-              <button class="all-status" :class="{ selected: libraryWatchFilter === 'all' }" @click="libraryWatchFilter = 'all'">
-                <span>全部</span><strong>{{ movieRecords.length }}</strong>
+              <button class="status-cycle-button" :class="`is-${activeLibraryWatchState.value}`" :aria-label="`当前${activeLibraryWatchState.label}，点击切换观看状态`" @click="cycleLibraryWatchFilter">
+                <Transition name="status-cycle" mode="out-in">
+                  <span :key="activeLibraryWatchState.value" class="status-cycle-content"><small>{{ activeLibraryWatchState.label }}</small><strong>{{ activeLibraryWatchState.count }}</strong></span>
+                </Transition>
+                <ChevronDown :size="12" />
               </button>
-              <div class="watch-status-combo">
-                <button class="watched-status" :class="{ selected: libraryWatchFilter === 'watched' }" @click="libraryWatchFilter = 'watched'">
-                  <span>已看</span><Transition name="count-pop" mode="out-in"><strong :key="`watched-${libraryWatchFilter}-${watchedCount}`">{{ watchedCount }}</strong></Transition>
-                </button>
-                <button class="unwatched-status" :class="{ selected: libraryWatchFilter === 'unwatched' }" @click="libraryWatchFilter = 'unwatched'">
-                  <span>未看</span><Transition name="count-pop" mode="out-in"><strong :key="`unwatched-${libraryWatchFilter}-${unwatchedCount}`">{{ unwatchedCount }}</strong></Transition>
-                </button>
-              </div>
             </div>
             <div class="library-list" aria-live="polite">
             <article v-for="(movie, index) in libraryMovies" :key="movie.id" class="library-row" :class="{ expanded: expandedLibraryId === movie.id }" :style="{ '--row-order': index, '--row-tint': movieTone(movie) }">
@@ -833,6 +850,8 @@ function navigateDetail(direction) {
           <div class="sheet-handle"></div>
           <header><div><small>{{ libraryMediaType }}分类</small><h2>选择影片类型</h2></div><button aria-label="关闭分类" @click="categoryOpen = false"><X :size="18" /></button></header>
           <section class="genre-only-section"><h3>常用类型</h3><div class="category-options"><button :class="{ selected: libraryGenre === 'all' }" @click="libraryGenre = 'all'">全部类型</button><button v-for="genre in libraryGenres" :key="genre" :class="{ selected: libraryGenre === genre }" @click="libraryGenre = genre">{{ genre }}</button></div></section>
+          <section class="library-sort-section"><h3>排列方式</h3><div class="library-sort-options"><button :class="{ selected: librarySortBy === 'name' }" @click="librarySortBy = 'name'">名字</button><button :class="{ selected: librarySortBy === 'release' }" @click="librarySortBy = 'release'">发布日期</button><button :class="{ selected: librarySortBy === 'rating' }" @click="librarySortBy = 'rating'">评分</button><button :class="{ selected: librarySortBy === 'personal' }" @click="librarySortBy = 'personal'">个人评分</button></div></section>
+          <button class="unwatched-priority-button" :class="{ selected: libraryUnwatchedFirst }" @click="libraryUnwatchedFirst = !libraryUnwatchedFirst"><span><strong>未观看优先</strong><small>“全部”列表中优先展示未观看内容</small></span><i><Check :size="13" /></i></button>
           <button class="category-done" @click="categoryOpen = false">完成</button>
         </aside>
       </div>
