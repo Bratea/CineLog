@@ -1,10 +1,11 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
-import { ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, ExternalLink, FolderTree, House, Search, SlidersHorizontal, Star, Upload, X } from 'lucide-vue-next'
+import { ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, ExternalLink, FolderTree, House, LayoutPanelTop, Search, SlidersHorizontal, Star, Upload, X } from 'lucide-vue-next'
 import MovieCarousel from './components/MovieCarousel.vue'
 import MovieList from './components/MovieList.vue'
 import MovieDetail from './components/MovieDetail.vue'
 import CategorySettings from './components/CategorySettings.vue'
+import DetailLayoutSettings from './components/DetailLayoutSettings.vue'
 import RotatingText from './components/RotatingText.vue'
 import { movies } from './data/movies'
 import cinematicAnimeCollage from './assets/cinematic-anime-collage.png'
@@ -95,6 +96,31 @@ const libraryMonthValue = ref(Number(localStorage.getItem('movie-library-month')
 const selectedLibraryDay = ref(Number(localStorage.getItem('movie-library-day')) || 15)
 const avatarUploadMessage = ref('')
 const librarySearchInput = ref(null)
+
+const defaultDetailLayout = [
+  { id: 'tagline', label: '影片金句', description: '影片标语与氛围文案', tone: 'violet' },
+  { id: 'score', label: 'TMDB 评分', description: '外部评分与评分人数', tone: 'gold' },
+  { id: 'trailer', label: '预告片', description: '官方预告片快捷入口', tone: 'coral' },
+  { id: 'facts', label: '基础资料', description: '上映日期、片长和分级', tone: 'blue' },
+  { id: 'synopsis', label: '剧情简介', description: '影片故事与内容概览', tone: 'green' },
+  { id: 'people', label: '主要演职员', description: '导演与主要演员阵容', tone: 'purple' },
+  { id: 'record', label: '我的记录', description: '个人评分、日期和短评', tone: 'rose' },
+]
+
+function loadDetailLayout() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('movie-detail-layout'))
+    if (!Array.isArray(saved)) return defaultDetailLayout.map((item) => ({ ...item }))
+    const savedIds = saved.map((item) => typeof item === 'string' ? item : item?.id)
+    const validIds = new Set(defaultDetailLayout.map((item) => item.id))
+    if (savedIds.length !== defaultDetailLayout.length || savedIds.some((id) => !validIds.has(id))) return defaultDetailLayout.map((item) => ({ ...item }))
+    return savedIds.map((id) => ({ ...defaultDetailLayout.find((item) => item.id === id) }))
+  } catch {
+    return defaultDetailLayout.map((item) => ({ ...item }))
+  }
+}
+
+const detailLayout = ref(loadDetailLayout())
 
 const incomingMovieGenres = [...new Set(movies.flatMap((movie) => movie.meta.split('·').map((genre) => genre.trim())))].filter(Boolean)
 const defaultCategorySettings = [
@@ -210,6 +236,7 @@ watch(libraryYearValue, (value) => localStorage.setItem('movie-library-year', St
 watch(libraryMonthValue, (value) => localStorage.setItem('movie-library-month', String(value)))
 watch(selectedLibraryDay, (value) => localStorage.setItem('movie-library-day', String(value)))
 watch(categorySettings, (value) => localStorage.setItem('movie-category-settings', JSON.stringify(value)), { deep: true })
+watch(detailLayout, (value) => localStorage.setItem('movie-detail-layout', JSON.stringify(value.map((item) => item.id))), { deep: true })
 watch(libraryMediaTypes, (types) => {
   if (!types.includes(libraryMediaType.value)) libraryMediaType.value = types[0] || '电影'
 })
@@ -224,6 +251,10 @@ function setWatchStat(value) {
 
 function toggleViewMode() {
   viewMode.value = viewMode.value === 'cards' ? 'list' : 'cards'
+}
+
+function resetDetailLayout() {
+  detailLayout.value = defaultDetailLayout.map((item) => ({ ...item }))
 }
 
 function markWatched(id) {
@@ -973,7 +1004,7 @@ function navigateDetail(direction) {
 
       <div v-if="posterFlight" class="poster-flight" :class="`poster-flight--${posterFlight.movie.poster}`" :style="{ '--flight-left': `${posterFlight.left}px`, '--flight-top': `${posterFlight.top}px`, '--flight-width': `${posterFlight.width}px`, '--flight-height': `${posterFlight.height}px`, ...libraryPosterStyle(posterFlight.movie) }" aria-hidden="true"></div>
 
-      <MovieDetail v-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" :entry-mode="detailEntry" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" @update-record="updateMovieRecord" />
+      <MovieDetail v-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" :entry-mode="detailEntry" :layout-order="detailLayout.map((item) => item.id)" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" @update-record="updateMovieRecord" />
 
       <Transition name="settings-shell">
         <section v-if="currentPage === 'settings'" class="personal-settings">
@@ -982,8 +1013,8 @@ function navigateDetail(direction) {
               <header class="settings-header settings-piece" style="--settings-order: 0">
                 <button :aria-label="settingsSection === 'hub' ? '返回首页' : '返回设置'" @click="backFromSettings"><ChevronLeft :size="22" /></button>
                 <div>
-                  <h1>{{ settingsSection === 'hub' ? '设置' : settingsSection === 'profile' ? '个人信息' : settingsSection === 'home' ? '首页编辑' : settingsSection === 'library' ? '列表设置' : settingsSection === 'categories' ? '分类设置' : 'TMDB 设置' }}</h1>
-                  <p>{{ settingsSection === 'hub' ? '把常用设置收进清晰的分类里。' : settingsSection === 'profile' ? '头像和名称会显示在首页。' : settingsSection === 'home' ? '控制首页的统计与展示数量。' : settingsSection === 'library' ? '控制片库快捷标签的显示数量。' : settingsSection === 'categories' ? '管理两层分类、自定义内容与显示顺序。' : '配置数据接口与国内网络访问。' }}</p>
+                  <h1>{{ settingsSection === 'hub' ? '设置' : settingsSection === 'profile' ? '个人信息' : settingsSection === 'home' ? '首页编辑' : settingsSection === 'library' ? '列表设置' : settingsSection === 'categories' ? '分类设置' : settingsSection === 'detail-layout' ? '电影详情布局' : 'TMDB 设置' }}</h1>
+                  <p>{{ settingsSection === 'hub' ? '把常用设置收进清晰的分类里。' : settingsSection === 'profile' ? '头像和名称会显示在首页。' : settingsSection === 'home' ? '控制首页的统计与展示数量。' : settingsSection === 'library' ? '控制片库快捷标签的显示数量。' : settingsSection === 'categories' ? '管理两层分类、自定义内容与显示顺序。' : settingsSection === 'detail-layout' ? '调整详情模块的优先展示顺序。' : '配置数据接口与国内网络访问。' }}</p>
                 </div>
               </header>
 
@@ -1001,6 +1032,7 @@ function navigateDetail(direction) {
                   <button @click="openSettingsSection('home')"><i class="settings-icon settings-icon--home"><House :size="18" /></i><span><strong>首页编辑</strong><small>统计单位、展示数量</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('library')"><i class="settings-icon settings-icon--library"><SlidersHorizontal :size="18" /></i><span><strong>列表设置</strong><small>快捷分类显示数量</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('categories')"><i class="settings-icon settings-icon--categories"><FolderTree :size="18" /></i><span><strong>分类设置</strong><small>两层分类、自定义与拖动排序</small></span><ChevronRight :size="18" /></button>
+                  <button @click="openSettingsSection('detail-layout')"><i class="settings-icon settings-icon--detail"><LayoutPanelTop :size="18" /></i><span><strong>电影详情布局</strong><small>7 个模块的展示优先级</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('tmdb')"><i class="settings-icon settings-icon--tmdb"><Database :size="18" /></i><span><strong>TMDB 设置</strong><small>API、图片与国内网络</small></span><ChevronRight :size="18" /></button>
                 </div>
                 <p class="settings-footnote settings-piece" style="--settings-order: 3">所有设置只保存在当前浏览器中。</p>
@@ -1042,6 +1074,10 @@ function navigateDetail(direction) {
 
               <template v-else-if="settingsSection === 'categories'">
                 <CategorySettings v-model:categories="categorySettings" />
+              </template>
+
+              <template v-else-if="settingsSection === 'detail-layout'">
+                <DetailLayoutSettings v-model:modules="detailLayout" @reset="resetDetailLayout" />
               </template>
 
               <template v-else>
