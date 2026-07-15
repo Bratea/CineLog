@@ -139,7 +139,8 @@ function resetOpenState() {
 }
 
 function posterStyle(movie) {
-  const path = movie.backdropUrl || movie.posterUrl || movie.backdrop_path || movie.poster_path
+  // 首页卡片使用竖版海报作为主体；横版背景只在没有海报时兜底。
+  const path = movie.posterUrl || movie.poster_path || movie.backdropUrl || movie.backdrop_path
   if (path) {
     const src = path.startsWith('http') ? path : `https://image.tmdb.org/t/p/original${path}`
     return { backgroundImage: `url(${src})` }
@@ -380,12 +381,13 @@ onBeforeUnmount(() => {
 .opening-detail .active-card .poster-image { animation:poster-open-lift .5s cubic-bezier(.2,.72,.18,1) both; }
 .opening-detail .active-card .album-info { animation:card-info-release .36s ease-out both; }
 .opening-detail .three-glow { opacity:.18; transform:scale(1.05); transition:opacity .42s ease,transform .5s cubic-bezier(.2,.72,.18,1); }
-.poster-image { position: absolute; inset: 0; background-size: cover; background-position: center; background-repeat: no-repeat; }
-.poster-image::after { content: ''; position: absolute; inset: 24% 0 0; background: linear-gradient(180deg, transparent 0%, rgba(7, 9, 12, .05) 25%, rgba(7, 9, 12, .72) 70%, rgba(7, 9, 12, .92) 100%); }
+.poster-image { position: absolute; inset: 0; overflow: hidden; background-color: #111318; background-size: cover; background-position: center; background-repeat: no-repeat; }
+.poster-image::before { content: ''; position: absolute; z-index: 0; inset: 0; background-image: inherit; background-size: contain; background-position: center; background-repeat: no-repeat; }
+.poster-image::after { content: ''; position: absolute; z-index: 1; inset: 40% 0 0; background: linear-gradient(180deg, transparent 0%, rgba(7, 9, 12, .04) 28%, rgba(7, 9, 12, .42) 72%, rgba(7, 9, 12, .68) 100%); }
 .album-card--pop .poster-image { background-image: radial-gradient(circle at 60% 20%, #ffcc74 0 7%, transparent 8%), linear-gradient(155deg, #4bb5cd, #1c4e80 50%, #061425); }
 .album-card--crayon .poster-image { background-image: radial-gradient(circle at 25% 20%, #ffde68 0 11%, transparent 12%), linear-gradient(155deg, #61c1de, #eca55c 51%, #b33730); }
 .album-card--coco .poster-image { background-image: radial-gradient(circle at 63% 19%, #ffda6b 0 10%, transparent 11%), linear-gradient(150deg, #3a61ad, #8b4074 56%, #f29b53); }
-.album-info { position: absolute; z-index: 2; right: 0; bottom: 0; left: 0; padding: 72px 14px 14px; background: linear-gradient(180deg, transparent, rgba(7,9,12,.76) 42%, rgba(7,9,12,.94)); }
+.album-info { position: absolute; z-index: 2; right: 0; bottom: 0; left: 0; padding: 72px 14px 14px; background: transparent; text-shadow: 0 2px 10px rgba(0,0,0,.72); }
 .album-info p { margin: 0; color: rgba(255,255,255,.82); font-size: 10px; font-weight: 600; }
 .album-info h2 { max-width: 94%; margin: 4px 0 0; font-size: 19px; line-height: 1.16; letter-spacing: -.055em; }
 .pull-detail-hint { position: absolute; z-index: 4; top: 10px; left: 50%; display: flex; align-items: center; gap: 4px; padding: 5px 9px; color: rgba(255,255,255,.72); border: 1px solid rgba(255,255,255,.15); border-radius: 999px; background: rgba(9,11,14,.12); backdrop-filter: blur(9px); font-size: 9px; font-weight: 650; transform: translateX(-50%) translateY(calc(var(--open-progress, 0) * -12px)); opacity: calc(.62 - var(--open-progress, 0) * .62); transition: opacity .2s ease, transform .2s ease; pointer-events: none; }
