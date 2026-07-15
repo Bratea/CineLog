@@ -4,7 +4,10 @@ import * as THREE from 'three'
 import { Check, ChevronRight, ChevronUp, Star } from 'lucide-vue-next'
 import cinematicAnimeCollage from '../assets/cinematic-anime-collage.png'
 
-const props = defineProps({ movies: { type: Array, required: true } })
+const props = defineProps({
+  movies: { type: Array, required: true },
+  active: { type: Boolean, default: true },
+})
 const emit = defineEmits(['mark-watched', 'open-detail'])
 
 const activeIndex = ref(0)
@@ -103,6 +106,16 @@ function beginDetailOpen(movie) {
   isOpeningDetail.value = true
   dragY.value = -112
   openTimer = window.setTimeout(() => emit('open-detail', movie), 330)
+}
+
+function resetOpenState() {
+  window.clearTimeout(openTimer)
+  isOpeningDetail.value = false
+  dragStart.value = null
+  dragX.value = 0
+  dragY.value = 0
+  dragAxis.value = null
+  isDragging.value = false
 }
 
 function posterStyle(movie) {
@@ -244,6 +257,7 @@ function setupThree() {
 
 watch(activeIndex, () => nextTick())
 watch(() => props.movies, () => { activeIndex.value = 0; resetSwipe() })
+watch(() => props.active, (active) => { if (!active) resetOpenState() })
 onMounted(setupThree)
 onBeforeUnmount(() => {
   window.clearTimeout(openTimer)

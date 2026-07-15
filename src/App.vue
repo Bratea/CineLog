@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { ChevronLeft, ChevronRight, Search, SlidersHorizontal, Star, X } from 'lucide-vue-next'
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Database, ExternalLink, House, Search, SlidersHorizontal, Star, X } from 'lucide-vue-next'
 import MovieCarousel from './components/MovieCarousel.vue'
 import MovieList from './components/MovieList.vue'
 import MovieDetail from './components/MovieDetail.vue'
@@ -37,6 +37,16 @@ const phoneShell = ref(null)
 const surfaceDragStart = ref(null)
 const surfaceDragX = ref(0)
 const surfaceDragging = ref(false)
+const yearMenuOpen = ref(false)
+const settingsSection = ref('hub')
+const settingsDirection = ref('forward')
+const avatarUrl = ref(localStorage.getItem('movie-avatar-url') || '')
+const tmdbToken = ref(localStorage.getItem('movie-tmdb-token') || '')
+const tmdbApiBase = ref(localStorage.getItem('movie-tmdb-api-base') || 'https://api.themoviedb.org/3')
+const tmdbImageBase = ref(localStorage.getItem('movie-tmdb-image-base') || 'https://image.tmdb.org/t/p')
+const tmdbNetworkMode = ref(localStorage.getItem('movie-tmdb-network-mode') || 'hosts')
+const tmdbTestState = ref('idle')
+const tmdbTestMessage = ref('')
 
 let watchConfirmTimer
 let surfaceSettleTimer
@@ -53,6 +63,7 @@ const periodLabel = computed(() => ({ year: `${selectedYear.value} 年`, month: 
 const watchedSubtitle = computed(() => `按${({ year: '年', month: '月', week: '周', day: '日' })[statPeriod.value]}整理 · 共 ${filteredMovies.value.length} 部`)
 const displayedMovies = computed(() => filteredMovies.value.slice(0, homeDisplayLimit.value))
 const surfaceTransitionName = computed(() => transitionDirection.value === 'forward' ? 'surface-forward' : 'surface-back')
+const settingsTransitionName = computed(() => settingsDirection.value === 'forward' ? 'settings-forward' : 'settings-back')
 const surfacePage = computed(() => currentPage.value === 'detail' ? detailOrigin.value : currentPage.value)
 const libraryYears = computed(() => [...new Set(movieRecords.value.map((movie) => movie.year))].sort().reverse())
 const libraryGenres = computed(() => [...new Set(movieRecords.value.flatMap((movie) => movie.meta.split('·').map((genre) => genre.trim())))].filter(Boolean).slice(0, 8))
@@ -74,6 +85,11 @@ const libraryMovies = computed(() => {
 watch(username, (value) => localStorage.setItem('movie-username', value || '用户'))
 watch(statPeriod, (value) => localStorage.setItem('movie-stat-period', value))
 watch(homeDisplayLimit, (value) => localStorage.setItem('movie-home-limit', String(value)))
+watch(avatarUrl, (value) => localStorage.setItem('movie-avatar-url', value.trim()))
+watch(tmdbToken, (value) => localStorage.setItem('movie-tmdb-token', value.trim()))
+watch(tmdbApiBase, (value) => localStorage.setItem('movie-tmdb-api-base', value.trim()))
+watch(tmdbImageBase, (value) => localStorage.setItem('movie-tmdb-image-base', value.trim()))
+watch(tmdbNetworkMode, (value) => localStorage.setItem('movie-tmdb-network-mode', value))
 
 function setWatchStat(value) {
   activeWatchStat.value = value
@@ -127,8 +143,58 @@ function openHomeListDetail(payload) {
 }
 
 function closeDetail() {
+  transitionDirection.value = detailOrigin.value === 'home' ? 'back' : 'forward'
   currentPage.value = detailOrigin.value
   selectedMovie.value = null
+}
+
+function openSettings(section = 'hub') {
+  settingsDirection.value = 'forward'
+  settingsSection.value = section
+  currentPage.value = 'settings'
+}
+
+function openSettingsSection(section) {
+  settingsDirection.value = 'forward'
+  settingsSection.value = section
+}
+
+function backFromSettings() {
+  if (settingsSection.value !== 'hub') {
+    settingsDirection.value = 'back'
+    settingsSection.value = 'hub'
+    return
+  }
+  transitionDirection.value = 'back'
+  currentPage.value = 'home'
+}
+
+function chooseYear(year) {
+  selectedYear.value = year
+  yearMenuOpen.value = false
+}
+
+async function testTmdbConnection() {
+  const token = tmdbToken.value.trim()
+  const base = tmdbApiBase.value.trim().replace(/\/$/, '')
+  if (!token || !base) {
+    tmdbTestState.value = 'error'
+    tmdbTestMessage.value = '请先填写 Read Access Token 和 API 地址。'
+    return
+  }
+  tmdbTestState.value = 'testing'
+  tmdbTestMessage.value = '正在连接 TMDB…'
+  try {
+    const response = await fetch(`${base}/configuration`, {
+      headers: { Authorization: `Bearer ${token}`, accept: 'application/json' },
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    tmdbTestState.value = 'success'
+    tmdbTestMessage.value = '连接成功，TMDB 配置可用。'
+  } catch (error) {
+    tmdbTestState.value = 'error'
+    tmdbTestMessage.value = `连接失败（${error.message}），请检查 Token、地址或 hosts。`
+  }
 }
 
 function showHome() {
@@ -234,7 +300,10 @@ function navigateDetail(direction) {
               <h1>{{ username }}的观影记录</h1>
               <p>把看过的故事，留在这里。</p>
             </div>
-            <button class="avatar-button" aria-label="打开个人设置" @click="currentPage = 'settings'"><span>{{ username.slice(0, 1) }}</span></button>
+            <button class="avatar-button" aria-label="打开个人设置" @click="openSettings()">
+              <img v-if="avatarUrl" :src="avatarUrl" alt="" />
+              <span v-else>{{ username.slice(0, 1) }}</span>
+            </button>
           </div>
 
           <div class="dashboard-controls">
@@ -262,14 +331,23 @@ function navigateDetail(direction) {
               <p v-if="activeWatchStat === 'watched'">{{ watchedSubtitle }}</p>
               <p v-else>还有 <strong class="unwatched-number">{{ unwatchedCount }}</strong> 部等待观看</p>
             </div>
-            <select v-if="activeWatchStat === 'watched' && statPeriod === 'year'" v-model="selectedYear" class="year-select" aria-label="选择年份">
-              <option v-for="year in watchedYears" :key="year" :value="year">{{ year }} 年</option>
-            </select>
-            <button v-else-if="activeWatchStat === 'watched'" class="period-badge" @click="currentPage = 'settings'">{{ periodLabel }}</button>
+            <div v-if="activeWatchStat === 'watched' && statPeriod === 'year'" class="year-picker">
+              <button class="year-select" aria-label="选择年份" :aria-expanded="yearMenuOpen" @click="yearMenuOpen = !yearMenuOpen">
+                <span>{{ selectedYear }} 年</span><ChevronDown :size="14" />
+              </button>
+              <Transition name="year-menu">
+                <div v-if="yearMenuOpen" class="year-menu" role="listbox" aria-label="年份列表">
+                  <button v-for="year in watchedYears" :key="year" :class="{ selected: selectedYear === year }" role="option" :aria-selected="selectedYear === year" @click="chooseYear(year)">
+                    <span>{{ year }} 年</span><Check v-if="selectedYear === year" :size="13" />
+                  </button>
+                </div>
+              </Transition>
+            </div>
+            <button v-else-if="activeWatchStat === 'watched'" class="period-badge" @click="openSettings('home')">{{ periodLabel }}</button>
           </div>
 
           <Transition name="drop-swap" mode="out-in" class="surface-piece" style="--piece-order: 2">
-            <MovieCarousel v-if="viewMode === 'cards'" :key="`cards-${activeWatchStat}-${statPeriod}-${selectedYear}`" :movies="displayedMovies" @mark-watched="markWatched" @open-detail="openDetail" />
+            <MovieCarousel v-if="viewMode === 'cards'" :key="`cards-${activeWatchStat}-${statPeriod}-${selectedYear}`" :movies="displayedMovies" :active="currentPage === 'home'" @mark-watched="markWatched" @open-detail="openDetail" />
             <MovieList v-else :key="`list-${activeWatchStat}-${statPeriod}-${selectedYear}`" :movies="displayedMovies" @open-detail="openHomeListDetail" @mark-watched="markWatched" />
           </Transition>
         </section>
@@ -343,42 +421,69 @@ function navigateDetail(direction) {
 
       <MovieDetail v-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" :entry-mode="detailEntry" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" />
 
-      <section v-if="currentPage === 'settings'" class="personal-settings">
-        <header class="settings-header">
-          <button aria-label="返回首页" @click="currentPage = 'home'"><ChevronLeft :size="22" /></button>
-          <div><h1>个人设置</h1><p>你的观影空间，由你定义。</p></div>
-        </header>
+      <Transition name="settings-shell">
+        <section v-if="currentPage === 'settings'" class="personal-settings">
+          <Transition :name="settingsTransitionName" mode="out-in">
+            <div :key="settingsSection" class="settings-page">
+              <header class="settings-header settings-piece" style="--settings-order: 0">
+                <button :aria-label="settingsSection === 'hub' ? '返回首页' : '返回设置'" @click="backFromSettings"><ChevronLeft :size="22" /></button>
+                <div>
+                  <h1>{{ settingsSection === 'hub' ? '设置' : settingsSection === 'profile' ? '个人信息' : settingsSection === 'home' ? '首页编辑' : 'TMDB 设置' }}</h1>
+                  <p>{{ settingsSection === 'hub' ? '把常用设置收进清晰的分类里。' : settingsSection === 'profile' ? '头像和名称会显示在首页。' : settingsSection === 'home' ? '控制首页的统计与展示数量。' : '配置数据接口与国内网络访问。' }}</p>
+                </div>
+              </header>
 
-        <div class="profile-card">
-          <div class="profile-avatar">{{ username.slice(0, 1) }}</div>
-          <div><strong>{{ username || '未命名用户' }}</strong><span>{{ watchedCount }} 部已观看</span></div>
-        </div>
+              <template v-if="settingsSection === 'hub'">
+                <button class="profile-card profile-card--link settings-piece" style="--settings-order: 1" @click="openSettingsSection('profile')">
+                  <div class="profile-avatar">
+                    <img v-if="avatarUrl" :src="avatarUrl" alt="" />
+                    <span v-else>{{ username.slice(0, 1) }}</span>
+                  </div>
+                  <div><strong>{{ username || '未命名用户' }}</strong><span>头像与名称 · {{ watchedCount }} 部已观看</span></div>
+                  <ChevronRight :size="19" />
+                </button>
 
-        <div class="settings-group">
-          <label for="username">用户名</label>
-          <input id="username" v-model.trim="username" maxlength="10" placeholder="输入你的名字" />
-          <small>首页将显示“{{ username || '用户' }}的观影记录”</small>
-        </div>
+                <div class="settings-category settings-piece" style="--settings-order: 2">
+                  <button @click="openSettingsSection('home')"><i class="settings-icon settings-icon--home"><House :size="18" /></i><span><strong>首页编辑</strong><small>统计单位、展示数量</small></span><ChevronRight :size="18" /></button>
+                  <button @click="openSettingsSection('tmdb')"><i class="settings-icon settings-icon--tmdb"><Database :size="18" /></i><span><strong>TMDB 设置</strong><small>API、图片与国内网络</small></span><ChevronRight :size="18" /></button>
+                </div>
+                <p class="settings-footnote settings-piece" style="--settings-order: 3">所有设置只保存在当前浏览器中。</p>
+              </template>
 
-        <div class="settings-group">
-          <label>默认统计单位</label>
-          <div class="period-options" role="group" aria-label="时间单位">
-            <button v-for="option in [{ value: 'year', label: '年' }, { value: 'month', label: '月' }, { value: 'week', label: '周' }, { value: 'day', label: '日' }]" :key="option.value" :class="{ selected: statPeriod === option.value }" @click="statPeriod = option.value">
-              {{ option.label }}
-            </button>
-          </div>
-        </div>
+              <template v-else-if="settingsSection === 'profile'">
+                <div class="profile-editor settings-piece" style="--settings-order: 1">
+                  <div class="profile-avatar profile-avatar--large"><img v-if="avatarUrl" :src="avatarUrl" alt="" /><span v-else>{{ username.slice(0, 1) }}</span></div>
+                  <div><strong>{{ username || '未命名用户' }}</strong><span>个人资料预览</span></div>
+                </div>
+                <div class="settings-group settings-piece" style="--settings-order: 2"><label for="username">名称</label><input id="username" v-model.trim="username" maxlength="10" placeholder="输入你的名字" /><small>首页将显示“{{ username || '用户' }}的观影记录”。</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 3"><label for="avatar-url">头像图片地址</label><input id="avatar-url" v-model.trim="avatarUrl" inputmode="url" placeholder="https://example.com/avatar.jpg" /><small>填写可访问的 HTTPS 图片地址；留空时显示名称首字。</small></div>
+              </template>
 
-        <div class="settings-group">
-          <label>首页最多展示</label>
-          <div class="period-options home-limit-options" role="group" aria-label="首页电影展示数量">
-            <button v-for="limit in [5, 10]" :key="limit" :class="{ selected: homeDisplayLimit === limit }" @click="homeDisplayLimit = limit">{{ limit }} 部</button>
-          </div>
-          <small>默认展示 5 部，最多可以设置为 10 部。</small>
-        </div>
+              <template v-else-if="settingsSection === 'home'">
+                <div class="settings-group settings-piece" style="--settings-order: 1"><label>默认统计单位</label><div class="period-options" role="group" aria-label="时间单位"><button v-for="option in [{ value: 'year', label: '年' }, { value: 'month', label: '月' }, { value: 'week', label: '周' }, { value: 'day', label: '日' }]" :key="option.value" :class="{ selected: statPeriod === option.value }" @click="statPeriod = option.value">{{ option.label }}</button></div></div>
+                <div class="settings-group settings-piece" style="--settings-order: 2"><label>首页最多展示</label><div class="period-options home-limit-options" role="group" aria-label="首页电影展示数量"><button v-for="limit in [5, 10]" :key="limit" :class="{ selected: homeDisplayLimit === limit }" @click="homeDisplayLimit = limit">{{ limit }} 部</button></div><small>默认展示 5 部，最多可以设置为 10 部。</small></div>
+              </template>
 
-        <button class="save-settings" @click="currentPage = 'home'">保存并返回</button>
-      </section>
+              <template v-else>
+                <div class="network-options settings-piece" style="--settings-order: 1" role="group" aria-label="TMDB 网络方式">
+                  <button :class="{ selected: tmdbNetworkMode === 'hosts' }" @click="tmdbNetworkMode = 'hosts'"><strong>系统 hosts</strong><span>国内推荐</span></button>
+                  <button :class="{ selected: tmdbNetworkMode === 'custom' }" @click="tmdbNetworkMode = 'custom'"><strong>自定义地址</strong><span>反代或镜像</span></button>
+                </div>
+                <div class="tmdb-notice settings-piece" style="--settings-order: 2">
+                  <Database :size="20" />
+                  <div><strong>{{ tmdbNetworkMode === 'hosts' ? '使用 CheckTMDB hosts' : '使用你自己的服务地址' }}</strong><p>{{ tmdbNetworkMode === 'hosts' ? 'CheckTMDB 提供域名到可用 IP 的映射，不是 API 代理。配置到系统或路由器 hosts 后，应用仍访问 TMDB 官方域名。' : '仅填写你信任的 TMDB 反代地址；图片地址也需由该服务支持。' }}</p></div>
+                </div>
+                <div class="settings-group settings-piece" style="--settings-order: 3"><label for="tmdb-token">Read Access Token</label><input id="tmdb-token" v-model.trim="tmdbToken" type="password" autocomplete="off" placeholder="eyJhbGciOi…" /><small>Token 只保存在当前浏览器，请勿在公共设备使用。</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 4"><label for="tmdb-api">API 地址</label><input id="tmdb-api" v-model.trim="tmdbApiBase" inputmode="url" /><small>官方默认：https://api.themoviedb.org/3</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 5"><label for="tmdb-image">图片地址</label><input id="tmdb-image" v-model.trim="tmdbImageBase" inputmode="url" /><small>官方默认：https://image.tmdb.org/t/p</small></div>
+                <div v-if="tmdbNetworkMode === 'hosts'" class="hosts-links settings-piece" style="--settings-order: 6"><a href="https://raw.githubusercontent.com/cnwikee/CheckTMDB/refs/heads/main/Tmdb_host_ipv4" target="_blank" rel="noreferrer">IPv4 hosts <ExternalLink :size="13" /></a><a href="https://raw.githubusercontent.com/cnwikee/CheckTMDB/refs/heads/main/Tmdb_host_ipv6" target="_blank" rel="noreferrer">IPv6 hosts <ExternalLink :size="13" /></a></div>
+                <button class="tmdb-test settings-piece" style="--settings-order: 7" :disabled="tmdbTestState === 'testing'" @click="testTmdbConnection">{{ tmdbTestState === 'testing' ? '正在测试…' : '测试连接' }}</button>
+                <p v-if="tmdbTestMessage" class="tmdb-result" :class="`is-${tmdbTestState}`">{{ tmdbTestMessage }}</p>
+              </template>
+            </div>
+          </Transition>
+        </section>
+      </Transition>
     </section>
   </main>
 </template>
