@@ -57,7 +57,7 @@ function move(direction) {
 }
 
 function pointerDown(event) {
-  if (isOpeningDetail.value || event.target.closest('button, [role="slider"]')) return
+  if (isOpeningDetail.value || event.target.closest('.watch-slider')) return
   dragStart.value = { x: event.clientX, y: event.clientY }
   dragX.value = 0
   dragY.value = 0
@@ -71,7 +71,8 @@ function pointerMove(event) {
   const deltaX = event.clientX - dragStart.value.x
   const deltaY = event.clientY - dragStart.value.y
   if (!dragAxis.value && Math.hypot(deltaX, deltaY) > 7) {
-    dragAxis.value = Math.abs(deltaY) > Math.abs(deltaX) * 1.08 ? 'vertical' : 'horizontal'
+    if (deltaY < -5 && Math.abs(deltaY) > Math.abs(deltaX) * .7) dragAxis.value = 'vertical'
+    else if (Math.abs(deltaX) > Math.abs(deltaY) * 1.15) dragAxis.value = 'horizontal'
   }
   if (dragAxis.value === 'vertical') {
     dragY.value = Math.max(-126, Math.min(24, deltaY))
@@ -80,14 +81,12 @@ function pointerMove(event) {
   }
 }
 
-function pointerUp(event) {
+function pointerUp() {
   if (dragStart.value === null) return
-  const deltaX = event.clientX - dragStart.value.x
-  const deltaY = event.clientY - dragStart.value.y
-  if (dragAxis.value === 'vertical' && deltaY < -68) {
+  if (dragAxis.value === 'vertical' && dragY.value < -56) {
     beginDetailOpen(activeMovie.value)
-  } else if (dragAxis.value === 'horizontal' && Math.abs(deltaX) > 46) {
-    move(deltaX > 0 ? -1 : 1)
+  } else if (dragAxis.value === 'horizontal' && Math.abs(dragX.value) > 46) {
+    move(dragX.value > 0 ? -1 : 1)
   }
 
   dragStart.value = null
@@ -246,6 +245,7 @@ onBeforeUnmount(() => {
       @pointermove="pointerMove"
       @pointerup="pointerUp"
       @pointercancel="pointerUp"
+      @dragstart.prevent
     >
       <canvas ref="glowCanvas" class="three-glow" aria-hidden="true"></canvas>
 
