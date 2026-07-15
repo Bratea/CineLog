@@ -105,3 +105,56 @@ export async function setLocalValue(key, value) {
     [key, JSON.stringify(value), Date.now()],
   )
 }
+
+export async function getDatabaseInfo() {
+  if (!isNativeDatabase()) {
+    const database = await openWebDatabase()
+    const stateEntries = await runWebTransaction('readonly', (store) => store.count())
+    const movieRecords = await runWebTransaction('readonly', (store) => store.get('movie-records'))
+    const estimate = navigator.storage?.estimate ? await navigator.storage.estimate() : null
+    return {
+      status: database ? 'connected' : 'error',
+      platform: '网页本地数据库',
+      engine: 'IndexedDB',
+      name: 'cinelog-local',
+      version: DATABASE_VERSION,
+      containerLabel: '对象仓库',
+      containerName: STORE_NAME,
+      encryption: '浏览器沙盒保护',
+      stateEntries: Number(stateEntries || 0),
+      movieRecords: Array.isArray(movieRecords) ? movieRecords.length : 0,
+      updatedAt: null,
+      storageUsage: Number(estimate?.usage || 0),
+      storageQuota: Number(estimate?.quota || 0),
+    }
+  }
+
+  const database = await openNativeDatabase()
+  const summary = await database.query('SELECT COUNT(*) AS count, MAX(updated_at) AS updated_at FROM app_state')
+  const records = await database.query('SELECT value FROM app_state WHERE key = ? LIMIT 1', ['movie-records'])
+  const pageCount = await database.query('PRAGMA page_count')
+  const pageSize = await database.query('PRAGMA page_size')
+  const rawRecords = records.values?.[0]?.value
+  let movieRecords = []
+  try {
+    movieRecords = typeof rawRecords === 'string' ? JSON.parse(rawRecords) : []
+  } catch {
+    movieRecords = []
+  }
+
+  return {
+    status: 'connected',
+    platform: 'Android 本地数据库',
+    engine: 'SQLite',
+    name: DATABASE_NAME,
+    version: DATABASE_VERSION,
+    containerLabel: '数据表',
+    containerName: 'app_state',
+    encryption: '未加密，仅应用私有目录可访问',
+    stateEntries: Number(summary.values?.[0]?.count || 0),
+    movieRecords: Array.isArray(movieRecords) ? movieRecords.length : 0,
+    updatedAt: Number(summary.values?.[0]?.updated_at || 0) || null,
+    storageUsage: Number(pageCount.values?.[0]?.page_count || 0) * Number(pageSize.values?.[0]?.page_size || 0),
+    storageQuota: 0,
+  }
+}
