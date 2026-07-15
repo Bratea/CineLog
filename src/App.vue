@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Database, ExternalLink, House, Search, SlidersHorizontal, Star, X } from 'lucide-vue-next'
+import { ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, ExternalLink, House, Search, SlidersHorizontal, Star, X } from 'lucide-vue-next'
 import MovieCarousel from './components/MovieCarousel.vue'
 import MovieList from './components/MovieList.vue'
 import MovieDetail from './components/MovieDetail.vue'
@@ -47,6 +47,15 @@ const tmdbImageBase = ref(localStorage.getItem('movie-tmdb-image-base') || 'http
 const tmdbNetworkMode = ref(localStorage.getItem('movie-tmdb-network-mode') || 'hosts')
 const tmdbTestState = ref('idle')
 const tmdbTestMessage = ref('')
+const expandedLibraryId = ref(null)
+const recordExpanded = ref(false)
+const tmdbQuery = ref('')
+const tmdbResults = ref([])
+const tmdbSearchState = ref('idle')
+const tmdbSearchMessage = ref('')
+const tmdbSearchLastQuery = ref('')
+const recordClosing = ref(false)
+const libraryWatchFilter = ref('all')
 
 let watchConfirmTimer
 let surfaceSettleTimer
@@ -78,7 +87,8 @@ const libraryMovies = computed(() => {
     const matchesQuery = !keyword || `${movie.title} ${movie.originalTitle} ${movie.meta}`.toLocaleLowerCase('zh-CN').includes(keyword)
     const matchesYear = libraryYear.value === 'all' || movie.year === libraryYear.value
     const matchesGenre = libraryGenre.value === 'all' || movie.meta.split('·').map((genre) => genre.trim()).includes(libraryGenre.value)
-    return matchesQuery && matchesYear && matchesGenre
+    const matchesWatch = libraryWatchFilter.value === 'all' || (libraryWatchFilter.value === 'watched' ? movie.watched : !movie.watched)
+    return matchesQuery && matchesYear && matchesGenre && matchesWatch
   })
 })
 
@@ -274,6 +284,86 @@ function markLibraryWatched(movie) {
   }, 920)
 }
 
+function toggleLibraryMovie(id) {
+  expandedLibraryId.value = expandedLibraryId.value === id ? null : id
+}
+
+function closeRecordSheet() {
+  if (recordClosing.value) return
+  recordClosing.value = true
+  window.setTimeout(() => {
+    addOpen.value = false
+    recordExpanded.value = false
+    recordClosing.value = false
+  }, recordExpanded.value ? 560 : 320)
+}
+
+function openTmdbSettingsFromRecord() {
+  closeRecordSheet()
+  window.setTimeout(() => openSettings('tmdb'), 570)
+}
+
+function startRecord() {
+  recordExpanded.value = true
+}
+
+function tmdbPoster(result) {
+  if (!result.poster_path) return ''
+  return `${tmdbImageBase.value.trim().replace(/\/$/, '')}/w342${result.poster_path}`
+}
+
+async function searchTmdb() {
+  const query = tmdbQuery.value.trim()
+  const token = tmdbToken.value.trim()
+  if (!query) return
+  if (!token) {
+    tmdbSearchState.value = 'error'
+    tmdbSearchMessage.value = '请先在 TMDB 设置中填写 Read Access Token。'
+    return
+  }
+  tmdbSearchState.value = 'loading'
+  tmdbSearchMessage.value = ''
+  tmdbSearchLastQuery.value = query
+  try {
+    const base = tmdbApiBase.value.trim().replace(/\/$/, '')
+    const params = new URLSearchParams({ query, language: 'zh-CN', include_adult: 'false', page: '1' })
+    const response = await fetch(`${base}/search/movie?${params}`, { headers: { Authorization: `Bearer ${token}`, accept: 'application/json' } })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const data = await response.json()
+    tmdbResults.value = (data.results || []).slice(0, 8)
+    tmdbSearchState.value = 'success'
+    tmdbSearchMessage.value = tmdbResults.value.length ? `找到 ${data.total_results ?? tmdbResults.value.length} 个结果` : ''
+  } catch (error) {
+    tmdbResults.value = []
+    tmdbSearchState.value = 'error'
+    tmdbSearchMessage.value = `搜索失败（${error.message}），请检查 Token 与网络设置。`
+  }
+}
+
+function addTmdbMovie(result) {
+  if (movieRecords.value.some((movie) => String(movie.id) === `tmdb-${result.id}`)) {
+    tmdbSearchMessage.value = '这部电影已经在记录中了。'
+    return
+  }
+  movieRecords.value.unshift({
+    id: `tmdb-${result.id}`,
+    title: result.title || result.original_title,
+    originalTitle: result.original_title || result.title,
+    meta: 'TMDB 电影',
+    year: result.release_date?.slice(0, 4) || '待定',
+    rating: result.vote_average ? Number(result.vote_average.toFixed(1)) : null,
+    watched: false,
+    poster: 'tmdb',
+    posterText: result.title || result.original_title,
+    poster_path: result.poster_path,
+    backdrop_path: result.backdrop_path,
+    overview: result.overview || '暂无剧情简介。',
+    feeling: '刚刚加入待看清单。',
+  })
+  activeWatchStat.value = 'unwatched'
+  tmdbSearchMessage.value = `已将《${result.title || result.original_title}》加入未观看。`
+}
+
 function updateWatched(value) {
   if (selectedMovie.value) selectedMovie.value.watched = value
 }
@@ -365,25 +455,37 @@ function navigateDetail(direction) {
             <kbd v-if="!libraryQuery">⌘ K</kbd>
           </label>
 
-          <div class="result-heading surface-piece" style="--piece-order: 2">
+          <div class="library-watch-tabs surface-piece" style="--piece-order: 2" role="group" aria-label="片库观看状态">
+            <button :class="{ selected: libraryWatchFilter === 'all' }" @click="libraryWatchFilter = 'all'"><span>全部</span><strong>{{ movieRecords.length }}</strong></button>
+            <button :class="{ selected: libraryWatchFilter === 'watched' }" @click="libraryWatchFilter = 'watched'"><span>已观看</span><strong>{{ watchedCount }}</strong></button>
+            <button :class="{ selected: libraryWatchFilter === 'unwatched' }" @click="libraryWatchFilter = 'unwatched'"><span>未观看</span><strong>{{ unwatchedCount }}</strong></button>
+          </div>
+
+          <div class="result-heading surface-piece" style="--piece-order: 3">
             <span>{{ libraryQuery ? `“${libraryQuery}”的结果` : activeCategoryLabel }}</span>
           </div>
 
-          <div class="library-list surface-piece" style="--piece-order: 3" aria-live="polite">
-            <article v-for="(movie, index) in libraryMovies" :key="movie.id" class="library-row" :style="{ '--row-order': index, '--row-tint': movieTone(movie) }" role="button" tabindex="0" @click="openDetailFromPoster(movie, $event.currentTarget)" @keydown.enter.prevent="openDetailFromPoster(movie, $event.currentTarget)">
-              <div class="library-poster" :class="`library-poster--${movie.poster}`" :style="libraryPosterStyle(movie)"><span>{{ movie.posterText }}</span></div>
-              <div class="library-copy">
-                <p>{{ movie.meta }} · {{ movie.year }}</p>
-                <h2>{{ movie.title }}</h2>
-                <div class="library-meta">
-                  <span class="score" :class="{ muted: movie.rating === null }"><Star :size="12" :fill="movie.rating === null ? 'none' : 'currentColor'" />{{ movie.rating ?? '暂无评分' }}</span>
+          <div class="library-list surface-piece" style="--piece-order: 4" aria-live="polite">
+            <article v-for="(movie, index) in libraryMovies" :key="movie.id" class="library-row" :class="{ expanded: expandedLibraryId === movie.id }" :style="{ '--row-order': index, '--row-tint': movieTone(movie) }">
+              <div class="library-row-main" role="button" tabindex="0" :aria-expanded="expandedLibraryId === movie.id" @click="toggleLibraryMovie(movie.id)" @keydown.enter.prevent="toggleLibraryMovie(movie.id)">
+                <div class="library-poster" :class="`library-poster--${movie.poster}`" :style="libraryPosterStyle(movie)"><span>{{ movie.posterText }}</span></div>
+                <div class="library-copy">
+                  <p>{{ movie.meta }} · {{ movie.year }}</p>
+                  <h2>{{ movie.title }}</h2>
+                  <div class="library-meta"><span class="score" :class="{ muted: movie.rating === null }"><Star :size="12" :fill="movie.rating === null ? 'none' : 'currentColor'" />{{ movie.rating ?? '暂无评分' }}</span></div>
                 </div>
+                <button v-if="movie.watched" class="row-action" :class="{ expanded: expandedLibraryId === movie.id }" :aria-label="expandedLibraryId === movie.id ? `收起${movie.title}` : `展开${movie.title}`" @click.stop="toggleLibraryMovie(movie.id)"><ChevronDown :size="17" /></button>
+                <button v-else class="watch-ring" :class="{ armed: armedWatched === movie.id, completing: markingWatched.includes(movie.id) }" :aria-label="armedWatched === movie.id ? `再次确认将${movie.title}标记为已观看` : `将${movie.title}标记为已观看`" @click.stop="markLibraryWatched(movie)">
+                  <svg viewBox="0 0 36 36" aria-hidden="true"><circle class="ring-track" cx="18" cy="18" r="14"/><circle class="ring-progress" cx="18" cy="18" r="14"/><path class="ring-check" d="m11.5 18.2 4.2 4.1 8.8-9"/></svg><span v-if="armedWatched === movie.id" class="confirm-dot">!</span>
+                </button>
               </div>
-              <button v-if="movie.watched" class="row-action" :aria-label="`查看${movie.title}详情`" @click.stop="openDetailFromPoster(movie, $event.currentTarget.closest('.library-row'))"><ChevronRight :size="17" /></button>
-              <button v-else class="watch-ring" :class="{ armed: armedWatched === movie.id, completing: markingWatched.includes(movie.id) }" :aria-label="armedWatched === movie.id ? `再次确认将${movie.title}标记为已观看` : `将${movie.title}标记为已观看`" @click.stop="markLibraryWatched(movie)">
-                <svg viewBox="0 0 36 36" aria-hidden="true"><circle class="ring-track" cx="18" cy="18" r="14"/><circle class="ring-progress" cx="18" cy="18" r="14"/><path class="ring-check" d="m11.5 18.2 4.2 4.1 8.8-9"/></svg>
-                <span v-if="armedWatched === movie.id" class="confirm-dot">!</span>
-              </button>
+              <Transition name="library-expand">
+                <div v-if="expandedLibraryId === movie.id" class="library-preview">
+                  <div class="library-preview__facts"><span>{{ movie.originalTitle }}</span><span>{{ movie.watched ? '已观看' : '未观看' }}</span></div>
+                  <p>{{ movie.overview || movie.feeling || '暂无剧情简介。' }}</p>
+                  <div class="library-preview__footer"><small>{{ movie.feeling || '展开完整详情查看更多记录。' }}</small><button :aria-label="`访问${movie.title}详情`" @click="openDetailFromPoster(movie, $event.currentTarget.closest('.library-row'))">访问 <ArrowUpRight :size="14" /></button></div>
+                </div>
+              </Transition>
             </article>
 
             <div v-if="!libraryMovies.length" class="empty-state"><Search :size="24" /><strong>没有找到相关电影</strong><span>试试换一个关键词或筛选条件</span></div>
@@ -408,12 +510,23 @@ function navigateDetail(direction) {
         </aside>
       </div>
 
-      <div v-if="addOpen && (currentPage === 'home' || currentPage === 'library')" class="sheet-backdrop" @click.self="addOpen = false">
-        <div class="add-sheet" role="dialog" aria-modal="true" aria-label="添加电影记录">
+      <div v-if="addOpen && (currentPage === 'home' || currentPage === 'library')" class="sheet-backdrop" :class="{ 'is-recording': recordExpanded, 'is-closing': recordClosing }" @click.self="closeRecordSheet">
+        <div class="add-sheet" :class="{ expanded: recordExpanded, closing: recordClosing }" role="dialog" aria-modal="true" aria-label="添加电影记录">
           <div class="sheet-handle"></div>
-          <h2>记录一部电影</h2>
-          <p>添加观看状态、你的评分，以及只属于你的观影感受。</p>
-          <button @click="addOpen = false">开始记录</button>
+          <template v-if="!recordExpanded">
+            <h2>记录一部电影</h2><p>输入电影名称，从 TMDB 获取封面和影片资料。</p><button @click="startRecord">开始记录</button>
+          </template>
+          <template v-else>
+            <header class="record-header"><div><small>新建记录</small><h2>搜索一部电影</h2></div><button aria-label="关闭添加电影" @click="closeRecordSheet"><X :size="19" /></button></header>
+            <form class="tmdb-search" @submit.prevent="searchTmdb"><Search :size="18" /><input v-model="tmdbQuery" autofocus type="search" placeholder="输入电影名称，例如：流浪地球" aria-label="TMDB电影名称" /><button type="submit" :disabled="tmdbSearchState === 'loading'">{{ tmdbSearchState === 'loading' ? '搜索中' : '搜索' }}</button></form>
+            <div v-if="!tmdbToken" class="record-api-note"><Database :size="18" /><div><strong>还没有配置 TMDB Token</strong><span>先完成设置，之后输入名称即可获取电影。</span></div><button @click="openTmdbSettingsFromRecord">去设置</button></div>
+            <div v-else-if="tmdbSearchState === 'idle'" class="record-empty"><Search :size="24" /><strong>按名称查找 TMDB</strong><span>搜索结果只用于展示和创建观影记录。</span></div>
+            <div v-if="tmdbSearchMessage" class="record-message" :class="`is-${tmdbSearchState}`">{{ tmdbSearchMessage }}</div>
+            <div v-if="tmdbSearchState === 'success' && !tmdbResults.length" class="record-no-results"><Search :size="24" /><strong>没有找到“{{ tmdbSearchLastQuery }}”</strong><span>TMDB 不会自动纠正中文错别字，请检查片名，或尝试原名、英文名。</span></div>
+            <div v-if="tmdbResults.length" class="tmdb-results">
+              <article v-for="result in tmdbResults" :key="result.id"><div class="tmdb-result-poster" :style="tmdbPoster(result) ? { backgroundImage: `url(${tmdbPoster(result)})` } : {}"><span v-if="!result.poster_path">暂无封面</span></div><div><small>{{ result.release_date?.slice(0, 4) || '待定' }} · TMDB {{ result.vote_average?.toFixed(1) || '暂无评分' }}</small><strong>{{ result.title || result.original_title }}</strong><p>{{ result.overview || '暂无剧情简介。' }}</p></div><button @click="addTmdbMovie(result)">添加</button></article>
+            </div>
+          </template>
         </div>
       </div>
 
