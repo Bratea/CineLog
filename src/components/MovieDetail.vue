@@ -13,6 +13,7 @@ import {
   Star,
   Tag,
   UserRound,
+  X,
 } from 'lucide-vue-next'
 import cinematicAnimeCollage from '../assets/cinematic-anime-collage.png'
 
@@ -20,7 +21,7 @@ const props = defineProps({
   movie: { type: Object, required: true },
   entryMode: { type: String, default: 'home' },
 })
-const emit = defineEmits(['back', 'navigate', 'update-watched'])
+const emit = defineEmits(['back', 'navigate', 'update-watched', 'update-record'])
 
 const liked = ref(false)
 const overviewExpanded = ref(false)
@@ -33,9 +34,16 @@ const swipeTransition = ref(true)
 const isSwitching = ref(false)
 const switchDirection = ref(0)
 const isReturning = ref(false)
+const editOpen = ref(false)
+const draftRating = ref(0)
+const draftDate = ref('')
+const draftReview = ref('')
+const ratingBurst = ref(false)
+const ratingBurstKey = ref(0)
 
 let switchTimer
 let backTimer
+let burstTimer
 
 const imageUrl = (path, size = 'original') => {
   if (!path) return ''
@@ -87,6 +95,37 @@ function handleScroll(event) {
 
 function setWatched(value) {
   emit('update-watched', value)
+}
+
+function toggleWatched() {
+  setWatched(!props.movie.watched)
+}
+
+function openRecordEditor() {
+  draftRating.value = personalScore.value || 0
+  draftDate.value = props.movie.watchedDate || ''
+  draftReview.value = props.movie.feeling || ''
+  editOpen.value = true
+}
+
+function selectRating(score) {
+  draftRating.value = score * 2
+  ratingBurstKey.value += 1
+  ratingBurst.value = false
+  window.clearTimeout(burstTimer)
+  window.requestAnimationFrame(() => {
+    ratingBurst.value = true
+    burstTimer = window.setTimeout(() => { ratingBurst.value = false }, 760)
+  })
+}
+
+function saveRecord() {
+  emit('update-record', {
+    rating: draftRating.value,
+    date: draftDate.value,
+    review: draftReview.value,
+  })
+  editOpen.value = false
 }
 
 function openTrailer() {
@@ -154,6 +193,7 @@ function requestBack() {
 watch(() => props.movie.id, async () => {
   window.clearTimeout(switchTimer)
   overviewExpanded.value = false
+  editOpen.value = false
   liked.value = Boolean(props.movie.favourite)
   scrollProgress.value = 0
   swipeTransition.value = false
@@ -169,6 +209,7 @@ watch(() => props.movie.id, async () => {
 onBeforeUnmount(() => {
   window.clearTimeout(switchTimer)
   window.clearTimeout(backTimer)
+  window.clearTimeout(burstTimer)
 })
 </script>
 
@@ -262,13 +303,46 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <footer class="detail-dock">
-      <button class="edit-dock" aria-label="编辑电影记录"><Pencil :size="17" /><span>编辑记录</span></button>
-      <div class="watch-switch" :class="{ watched: movie.watched }" role="group" aria-label="观看状态">
-        <span class="switch-thumb" aria-hidden="true"></span>
-        <button :class="{ selected: !movie.watched }" @click="setWatched(false)">未观看</button>
-        <button :class="{ selected: movie.watched }" @click="setWatched(true)"><Check :size="12" />已观看</button>
+    <Transition name="record-editor">
+      <div v-if="editOpen" class="record-editor-backdrop" @click.self="editOpen = false">
+        <section class="record-editor-sheet" role="dialog" aria-modal="true" aria-label="编辑我的记录">
+          <div class="record-editor-handle" aria-hidden="true"></div>
+          <header>
+            <div><small>MY MOVIE LOG</small><h2>编辑我的记录</h2></div>
+            <button aria-label="关闭编辑" @click="editOpen = false"><X :size="18" /></button>
+          </header>
+
+          <section class="rating-editor">
+            <div class="editor-label"><span>我的评分</span><strong>{{ draftRating || '—' }}<small>/10</small></strong></div>
+            <div class="rating-stars" role="group" aria-label="个人评分">
+              <button v-for="score in 5" :key="score" type="button" :class="{ selected: draftRating >= score * 2 }" :aria-label="`${score * 2} 分`" @click="selectRating(score)">
+                <Star :size="26" :fill="draftRating >= score * 2 ? 'currentColor' : 'none'" />
+              </button>
+              <div v-if="ratingBurst" :key="ratingBurstKey" class="star-burst" aria-hidden="true">
+                <Star v-for="particle in 12" :key="particle" :style="{ '--particle': particle }" :size="10" fill="currentColor" />
+              </div>
+            </div>
+          </section>
+
+          <label class="record-field">
+            <span>观看日期</span>
+            <input v-model="draftDate" type="date" />
+          </label>
+          <label class="record-field record-review-field">
+            <span>个人评论</span>
+            <textarea v-model="draftReview" rows="4" placeholder="写下这次观影留下的感受……"></textarea>
+          </label>
+          <button class="record-save" @click="saveRecord"><Check :size="16" />保存记录</button>
+        </section>
       </div>
+    </Transition>
+
+    <footer class="detail-dock">
+      <div class="dock-empty" aria-hidden="true"></div>
+      <button class="edit-dock" aria-label="编辑我的记录" @click="openRecordEditor"><Pencil :size="24" /></button>
+      <button class="watch-toggle" :class="{ watched: movie.watched }" :aria-label="`当前${movie.watched ? '已观看' : '未观看'}，点击切换`" @click="toggleWatched">
+        <Check v-if="movie.watched" :size="13" /><span>{{ movie.watched ? '已观看' : '未观看' }}</span>
+      </button>
     </footer>
   </article>
 </template>

@@ -631,6 +631,16 @@ function updateWatched(value) {
   if (selectedMovie.value) selectedMovie.value.watched = value
 }
 
+function updateMovieRecord(record) {
+  if (!selectedMovie.value) return
+  Object.assign(selectedMovie.value, {
+    personalRating: record.rating || null,
+    rating: record.rating || null,
+    watchedDate: record.date || '',
+    feeling: record.review?.trim() || '',
+  })
+}
+
 function navigateDetail(direction) {
   const currentIndex = movieRecords.value.findIndex((movie) => movie.id === selectedMovie.value?.id)
   if (currentIndex < 0 || movieRecords.value.length < 2) return
@@ -877,7 +887,7 @@ function navigateDetail(direction) {
 
       <div v-if="posterFlight" class="poster-flight" :class="`poster-flight--${posterFlight.movie.poster}`" :style="{ '--flight-left': `${posterFlight.left}px`, '--flight-top': `${posterFlight.top}px`, '--flight-width': `${posterFlight.width}px`, '--flight-height': `${posterFlight.height}px`, ...libraryPosterStyle(posterFlight.movie) }" aria-hidden="true"></div>
 
-      <MovieDetail v-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" :entry-mode="detailEntry" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" />
+      <MovieDetail v-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" :entry-mode="detailEntry" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" @update-record="updateMovieRecord" />
 
       <Transition name="settings-shell">
         <section v-if="currentPage === 'settings'" class="personal-settings">
