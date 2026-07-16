@@ -629,6 +629,8 @@ onBeforeUnmount(() => {
   window.clearTimeout(startupAnimationTimer)
   window.clearTimeout(themeSwitchTimer)
   window.clearTimeout(viewModeSwitchTimer)
+  window.clearTimeout(settingsNoticeTimer)
+  window.clearTimeout(settingsAutoInputTimer)
   document.documentElement.classList.remove('theme-transitioning')
   systemThemeQuery.removeEventListener('change', handleSystemThemeChange)
 })
@@ -1679,7 +1681,7 @@ function navigateDetail(direction) {
       <Transition :name="surfaceTransitionName" :duration="surfaceTransitionDuration">
         <section v-if="surfacePage === 'home'" key="home" class="surface-view home-surface">
         <Transition name="record-notice">
-          <AppNotice v-if="homeNotice" :key="`${homeNotice.title}-${homeNotice.message}`" :title="homeNotice.title" :message="homeNotice.message" tone="warning" placement="home" :duration="2400" />
+          <AppNotice v-if="homeNotice" :key="`${homeNotice.title}-${homeNotice.message}`" :title="homeNotice.title" :message="homeNotice.message" tone="warning" placement="home" :motion="motionIntensity" :duration="2400" />
         </Transition>
         <header class="topbar surface-piece" style="--piece-order: 0">
           <div class="welcome-row">
@@ -1744,7 +1746,7 @@ function navigateDetail(direction) {
 
         <section v-else-if="surfacePage === 'library'" key="library" class="surface-view library-surface" :class="`tools-${libraryControlsSide}`" aria-label="电影列表页面" @click="dismissLibraryPopovers">
           <Transition name="library-notice">
-            <AppNotice v-if="libraryNotice" :key="`${libraryNotice.title}-${libraryNotice.message}`" :title="libraryNotice.title" :message="libraryNotice.message" tone="warning" placement="library" :duration="2400" />
+            <AppNotice v-if="libraryNotice" :key="`${libraryNotice.title}-${libraryNotice.message}`" :title="libraryNotice.title" :message="libraryNotice.message" tone="warning" placement="library" :motion="motionIntensity" :duration="2400" />
           </Transition>
           <header class="library-header surface-piece" style="--piece-order: 0">
             <div>
@@ -1880,7 +1882,7 @@ function navigateDetail(direction) {
           </template>
           <template v-else-if="recordMode === 'search'">
             <Transition name="record-notice">
-              <AppNotice v-if="recordNotice" :key="`${recordNotice.title}-${recordNotice.message}`" :title="recordNotice.title" :message="recordNotice.message" :tone="recordNotice.type" placement="record" :duration="3200" closable @close="recordNotice = null" />
+              <AppNotice v-if="recordNotice" :key="`${recordNotice.title}-${recordNotice.message}`" :title="recordNotice.title" :message="recordNotice.message" :tone="recordNotice.type" placement="record" :motion="motionIntensity" :duration="3200" closable @close="recordNotice = null" />
             </Transition>
             <header class="record-header" :class="{ 'has-results': tmdbSearchState === 'success' && tmdbResults.length }"><div><small>{{ tmdbSearchState === 'success' && tmdbResults.length ? `搜索结果 · ${tmdbTotalResults} 部` : '新建记录' }}</small><h2>{{ tmdbSearchState === 'success' && tmdbResults.length ? `“${tmdbSearchLastQuery}”` : '搜索一部电影' }}</h2></div><button aria-label="关闭添加电影" @click="closeRecordSheet"><X :size="19" /></button></header>
             <form class="tmdb-search" :class="{ 'is-complete': tmdbSearchState === 'success' && tmdbResults.length }" @submit.prevent="tmdbSearchState === 'success' && tmdbResults.length ? resetTmdbSearch() : searchTmdb()"><Search :size="18" /><input v-model="tmdbQuery" autofocus type="search" placeholder="输入电影名称，例如：流浪地球" aria-label="TMDB电影名称" /><button type="submit" :disabled="tmdbSearchState === 'loading'">{{ tmdbSearchState === 'loading' ? '搜索中' : tmdbSearchState === 'success' && tmdbResults.length ? '重新搜索' : '搜索' }}</button></form>
@@ -1923,7 +1925,7 @@ function navigateDetail(direction) {
           </template>
           <template v-else>
             <Transition name="record-notice">
-              <AppNotice v-if="recordNotice" :key="`${recordNotice.title}-${recordNotice.message}`" :title="recordNotice.title" :message="recordNotice.message" :tone="recordNotice.type" placement="record" :duration="3200" closable @close="recordNotice = null" />
+              <AppNotice v-if="recordNotice" :key="`${recordNotice.title}-${recordNotice.message}`" :title="recordNotice.title" :message="recordNotice.message" :tone="recordNotice.type" placement="record" :motion="motionIntensity" :duration="3200" closable @close="recordNotice = null" />
             </Transition>
             <header class="record-header import-record-header"><div><small>中文片单</small><h2>检查后再导入</h2></div><button aria-label="关闭导入片单" @click="closeRecordSheet"><X :size="19" /></button></header>
             <div class="import-batch-tool"><input ref="importFileInput" class="import-file-input" type="file" accept=".txt,.csv,.xlsx,.xls,text/plain,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" @change="handleImportFile" /><button type="button" @click="importFileInput?.click()"><FileText :size="17" /><span><strong>选择 TXT 或 Excel 片单</strong><small>支持 .txt · .xlsx · .xls · .csv</small></span><Upload :size="15" /></button></div>

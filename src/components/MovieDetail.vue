@@ -356,7 +356,7 @@ onBeforeUnmount(() => {
       <div class="detail-swipe-hint" aria-hidden="true">左右滑动切换</div>
       <button :class="{ active: liked }" aria-label="收藏" @click="liked = !liked"><Heart :size="20" :fill="liked ? 'currentColor' : 'none'" /></button>
     </header>
-    <AppNotice v-if="detailNotice" :key="detailNotice.title" :title="detailNotice.title" :message="detailNotice.message" placement="detail" :duration="2600" closable @close="detailNotice = null" />
+    <AppNotice v-if="detailNotice" :key="detailNotice.title" :title="detailNotice.title" :message="detailNotice.message" placement="detail" :motion="motionIntensity" :duration="2600" closable @close="detailNotice = null" />
 
     <div ref="detailScroll" class="detail-scroll" @scroll.passive="handleScroll">
       <section :key="`hero-${movie.id}`" class="detail-hero-copy">
