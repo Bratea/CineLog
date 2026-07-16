@@ -523,7 +523,6 @@ watch(libraryMediaTypes, (types) => {
 })
 watch(libraryMediaType, () => {
   libraryGenre.value = 'all'
-  libraryMediaMenuOpen.value = false
 })
 
 function setWatchStat(value) {
@@ -752,13 +751,68 @@ function animateSettingsChoice(event: MouseEvent) {
   const target = (event.target as HTMLElement | null)?.closest?.('button') as HTMLButtonElement | null
   if (!target || target.disabled) return
   const group = target.closest(
-    '.period-options,.tag-limit-options,.library-side-options,.library-sort-options,.library-priority-options,.category-options,.category-parent-list,.network-options',
+    '.period-options,.tag-limit-options,.library-side-options,.library-sort-options,.library-priority-options,.category-options,.category-parent-list,.network-options,.motion-intensity-options,.profile-color-palette,.library-chip-scroll,.library-media-menu,.date-option-row>div',
   ) as HTMLElement | null
   if (!group || target.classList.contains('selected')) return
 
   const previous = group.querySelector<HTMLElement>('button.selected')
+  const activeMotionIntensity: MotionIntensity = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'low' : motionIntensity.value
+  if (activeMotionIntensity === 'low') {
+    target.classList.remove('choice-low-tap')
+    void target.offsetWidth
+    target.classList.add('choice-low-tap')
+    window.setTimeout(() => target.classList.remove('choice-low-tap'), 180)
+    return
+  }
+
   const targetRect = target.getBoundingClientRect()
   const previousRect = previous?.getBoundingClientRect()
+  if (activeMotionIntensity === 'high' && previous && previousRect) {
+    group.querySelector('.choice-flight')?.remove()
+    group.querySelectorAll('.choice-flight-peer,.choice-flight-target,.choice-flight-ink').forEach((element) => {
+      element.classList.remove('choice-flight-peer', 'choice-flight-target', 'choice-flight-ink')
+    })
+
+    const groupRect = group.getBoundingClientRect()
+    const flight = document.createElement('i')
+    const previousStyle = window.getComputedStyle(previous)
+    const left = previousRect.left - groupRect.left + group.scrollLeft
+    const top = previousRect.top - groupRect.top + group.scrollTop
+    const deltaX = targetRect.left - previousRect.left
+    const deltaY = targetRect.top - previousRect.top
+    const scaleX = targetRect.width / previousRect.width
+    const scaleY = targetRect.height / previousRect.height
+    const overshootX = deltaX === 0 ? 0 : Math.sign(deltaX) * Math.min(7, Math.abs(deltaX) * .08)
+    const overshootY = deltaY === 0 ? 0 : Math.sign(deltaY) * Math.min(5, Math.abs(deltaY) * .08)
+
+    flight.className = 'choice-flight'
+    Object.assign(flight.style, {
+      left: `${left}px`,
+      top: `${top}px`,
+      width: `${previousRect.width}px`,
+      height: `${previousRect.height}px`,
+      borderRadius: previousStyle.borderRadius,
+      background: previousStyle.background,
+      boxShadow: previousStyle.boxShadow,
+    })
+    previous.classList.add('choice-flight-peer')
+    target.classList.add('choice-flight-peer', 'choice-flight-target')
+    group.appendChild(flight)
+    const animation = flight.animate([
+      { transform: 'translate3d(0,0,0) scale(1,1)', filter: 'brightness(1)', offset: 0 },
+      { transform: `translate3d(${deltaX * .62}px,${deltaY * .62}px,0) scale(${1 + (scaleX - 1) * .62},${1 + (scaleY - 1) * .62})`, filter: 'brightness(1.035)', offset: .55 },
+      { transform: `translate3d(${deltaX + overshootX}px,${deltaY + overshootY}px,0) scale(${scaleX * 1.018},${scaleY * 1.018})`, filter: 'brightness(1.02)', offset: .82 },
+      { transform: `translate3d(${deltaX}px,${deltaY}px,0) scale(${scaleX},${scaleY})`, filter: 'brightness(1)', offset: 1 },
+    ], { duration: 540, easing: 'cubic-bezier(.16,1,.3,1)', fill: 'forwards' })
+    window.setTimeout(() => target.classList.add('choice-flight-ink'), 300)
+    animation.finished.catch(() => {}).finally(() => {
+      flight.remove()
+      previous.classList.remove('choice-flight-peer')
+      target.classList.remove('choice-flight-peer', 'choice-flight-target', 'choice-flight-ink')
+    })
+    return
+  }
+
   const originX = previousRect ? previousRect.left + previousRect.width / 2 - targetRect.left : targetRect.width / 2
   const originY = previousRect ? previousRect.top + previousRect.height / 2 - targetRect.top : targetRect.height / 2
 
@@ -781,6 +835,18 @@ function animateSettingsChoice(event: MouseEvent) {
 function chooseYear(year) {
   selectedYear.value = year
   yearMenuOpen.value = false
+}
+
+function selectLibraryMediaType(type: string) {
+  if (libraryMediaType.value === type) {
+    libraryMediaMenuOpen.value = false
+    return
+  }
+  libraryMediaType.value = type
+  const closeDelay = ({ high: 540, medium: 480, low: 150 })[motionIntensity.value]
+  window.setTimeout(() => {
+    libraryMediaMenuOpen.value = false
+  }, closeDelay)
 }
 
 async function testTmdbConnection() {
@@ -1568,6 +1634,7 @@ function navigateDetail(direction) {
       @pointermove.capture="edgeBackPointerMove"
       @pointerup.capture="edgeBackPointerUp"
       @pointercancel.capture="cancelEdgeBackGesture"
+      @click.capture="animateSettingsChoice"
     >
       <div class="ambient-orb ambient-orb--one" aria-hidden="true"></div>
       <div class="ambient-orb ambient-orb--two" aria-hidden="true"></div>
@@ -1672,7 +1739,9 @@ function navigateDetail(direction) {
             </div>
             <div class="library-media-switch">
               <button aria-label="切换内容显示" :aria-expanded="libraryMediaMenuOpen" @click="libraryMediaMenuOpen = !libraryMediaMenuOpen"><span>{{ libraryMediaType }}</span><ChevronDown :size="13" /></button>
-              <div v-if="libraryMediaMenuOpen" class="library-media-menu"><button v-for="type in libraryMediaTypes" :key="type" :class="{ selected: libraryMediaType === type }" @click="libraryMediaType = type; libraryMediaMenuOpen = false">{{ type }}</button></div>
+              <Transition name="media-menu">
+                <div v-if="libraryMediaMenuOpen" class="library-media-menu"><button v-for="type in libraryMediaTypes" :key="type" :class="{ selected: libraryMediaType === type }" @click="selectLibraryMediaType(type)">{{ type }}</button></div>
+              </Transition>
             </div>
           </header>
 
@@ -1848,7 +1917,7 @@ function navigateDetail(direction) {
       <MovieDetail ref="movieDetail" v-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" :entry-mode="detailEntry" :motion-intensity="motionIntensity" :layout-order="detailLayout.map((item) => item.id)" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" @update-record="updateMovieRecord" @request-person="requestPersonDetails" />
 
       <Transition name="settings-shell">
-        <section v-if="currentPage === 'settings'" class="personal-settings" @click.capture="animateSettingsChoice">
+        <section v-if="currentPage === 'settings'" class="personal-settings">
           <Transition :name="settingsTransitionName" mode="out-in">
             <div :key="settingsSection" class="settings-page">
               <header class="settings-header settings-piece" style="--settings-order: 0">
