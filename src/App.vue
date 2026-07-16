@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { ArrowDownUp, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, ExternalLink, FileText, FolderTree, GripVertical, HardDrive, House, LayoutPanelTop, Pencil, Play, RefreshCw, Search, SlidersHorizontal, Star, Trash2, Upload, X } from 'lucide-vue-next'
+import { Capacitor, CapacitorHttp } from '@capacitor/core'
+import { ArrowDownUp, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, ExternalLink, FileText, FolderTree, GripVertical, HardDrive, House, LayoutPanelTop, MoonStar, Pencil, Play, RefreshCw, Search, SlidersHorizontal, Star, Trash2, Upload, X } from 'lucide-vue-next'
 import MovieCarousel from './components/MovieCarousel.vue'
 import MovieList from './components/MovieList.vue'
 import MovieDetail from './components/MovieDetail.vue'
@@ -21,9 +22,18 @@ import pixelRows from './assets/pixel-rows.webp'
 import type { Movie } from './types'
 
 const currentPage = ref('home')
+const isNativeApp = Capacitor.isNativePlatform()
 const STARTUP_ANIMATION_ENABLED_KEY = 'cinelog-startup-animation-enabled'
+const THEME_MODE_KEY = 'cinelog-theme-mode'
 const MOVIE_RECORDS_STORAGE_KEY = 'movie-records'
 const LEGACY_SAMPLE_POSTERS = new Set(['pop', 'demon', 'crayon', 'coco'])
+type ThemeMode = 'system' | 'light' | 'dark'
+const storedThemeMode = localStorage.getItem(THEME_MODE_KEY)
+const themeMode = ref<ThemeMode>(storedThemeMode === 'light' || storedThemeMode === 'dark' ? storedThemeMode : 'system')
+const systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)')
+const systemDark = ref(systemThemeQuery.matches)
+const resolvedTheme = computed(() => themeMode.value === 'system' ? (systemDark.value ? 'dark' : 'light') : themeMode.value)
+const themeModeLabel = computed(() => ({ system: '跟随系统', light: '浅色', dark: '深色' })[themeMode.value])
 const startupAnimationEnabled = ref(localStorage.getItem(STARTUP_ANIMATION_ENABLED_KEY) !== 'false')
 const showStartupAnimation = ref(startupAnimationEnabled.value)
 let startupAnimationTimer
@@ -47,6 +57,15 @@ function previewStartupAnimation() {
     showStartupAnimation.value = true
     scheduleStartupAnimation()
   })
+}
+
+function cycleThemeMode() {
+  const modes: ThemeMode[] = ['system', 'light', 'dark']
+  themeMode.value = modes[(modes.indexOf(themeMode.value) + 1) % modes.length]
+}
+
+function handleSystemThemeChange(event: MediaQueryListEvent) {
+  systemDark.value = event.matches
 }
 
 scheduleStartupAnimation()
@@ -407,6 +426,12 @@ watch(selectedLibraryDay, (value) => localStorage.setItem('movie-library-day', S
 watch(startupAnimationEnabled, (value) => {
   localStorage.setItem(STARTUP_ANIMATION_ENABLED_KEY, String(value))
 })
+watch(themeMode, (value) => localStorage.setItem(THEME_MODE_KEY, value))
+watch(resolvedTheme, (value) => {
+  document.documentElement.dataset.theme = value
+  document.documentElement.style.colorScheme = value
+}, { immediate: true })
+systemThemeQuery.addEventListener('change', handleSystemThemeChange)
 watch(movieRecords, (value) => {
   if (!movieRecordsReady.value) return
   window.clearTimeout(persistMovieRecordsTimer)
@@ -514,6 +539,7 @@ onBeforeUnmount(() => {
   window.clearTimeout(libraryTagHoldTimer)
   window.clearTimeout(startupAnimationTimer)
   window.clearTimeout(surfaceBridgeTimer)
+  systemThemeQuery.removeEventListener('change', handleSystemThemeChange)
 })
 
 function markWatched(id) {
@@ -643,6 +669,36 @@ function backFromSettings() {
   currentPage.value = 'home'
 }
 
+function animateSettingsChoice(event: MouseEvent) {
+  const target = (event.target as HTMLElement | null)?.closest?.('button') as HTMLButtonElement | null
+  if (!target || target.disabled) return
+  const group = target.closest(
+    '.period-options,.tag-limit-options,.library-side-options,.library-sort-options,.library-priority-options,.category-options,.category-parent-list,.network-options',
+  ) as HTMLElement | null
+  if (!group || target.classList.contains('selected')) return
+
+  const previous = group.querySelector<HTMLElement>('button.selected')
+  const targetRect = target.getBoundingClientRect()
+  const previousRect = previous?.getBoundingClientRect()
+  const originX = previousRect ? previousRect.left + previousRect.width / 2 - targetRect.left : targetRect.width / 2
+  const originY = previousRect ? previousRect.top + previousRect.height / 2 - targetRect.top : targetRect.height / 2
+
+  target.style.setProperty('--choice-origin-x', `${originX}px`)
+  target.style.setProperty('--choice-origin-y', `${originY}px`)
+  target.classList.remove('choice-infecting')
+  previous?.classList.remove('choice-releasing')
+  group.classList.remove('choice-group-active')
+  void target.offsetWidth
+  group.classList.add('choice-group-active')
+  target.classList.add('choice-infecting')
+  previous?.classList.add('choice-releasing')
+  window.setTimeout(() => {
+    group.classList.remove('choice-group-active')
+    target.classList.remove('choice-infecting')
+    previous?.classList.remove('choice-releasing')
+  }, 560)
+}
+
 function chooseYear(year) {
   selectedYear.value = year
   yearMenuOpen.value = false
@@ -660,13 +716,16 @@ async function testTmdbConnection() {
   tmdbTestMessage.value = '正在连接 TMDB…'
   try {
     const request = tmdbRequest(`${base}/configuration`)
-    const response = await fetch(request.url, request.options)
+    const response = await executeTmdbRequest(request)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     tmdbTestState.value = 'success'
     tmdbTestMessage.value = '连接成功，TMDB 配置可用。'
   } catch (error) {
     tmdbTestState.value = 'error'
-    tmdbTestMessage.value = `连接失败（${error.message}），请检查 Token、地址或 hosts。`
+    const nativeHint = Capacitor.isNativePlatform() && tmdbNetworkMode.value === 'hosts'
+      ? 'APK 不会继承电脑 hosts，请在手机网络配置 hosts/VPN，或切换为 HTTPS 自定义地址。'
+      : '请检查 Token 与服务地址。'
+    tmdbTestMessage.value = `连接失败（${error.message}）。${nativeHint}`
   }
 }
 
@@ -703,6 +762,45 @@ function tmdbRequest(url, params = {}) {
   else search.set('api_key', credential)
   const separator = url.includes('?') ? '&' : '?'
   return { url: search.toString() ? `${url}${separator}${search}` : url, options: { headers } }
+}
+
+async function executeTmdbRequest(request) {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const response = await Promise.race([
+        CapacitorHttp.get({
+          url: request.url,
+          headers: request.options.headers,
+          connectTimeout: 10000,
+          readTimeout: 15000,
+          responseType: 'json',
+        }),
+        new Promise((_, reject) => window.setTimeout(() => reject(new Error('连接超时')), 18000)),
+      ])
+      return {
+        ok: response.status >= 200 && response.status < 300,
+        status: response.status,
+        json: async () => response.data,
+      }
+    } catch (error) {
+      const message = String(error?.message || error || '')
+      if (/timeout|timed out/i.test(message)) throw new Error('连接超时')
+      if (/unable to resolve host|unknown host|dns/i.test(message)) throw new Error('手机无法解析 TMDB 域名')
+      if (/cleartext/i.test(message)) throw new Error('自定义地址必须使用 HTTPS')
+      throw new Error(message || '手机网络请求失败')
+    }
+  }
+
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 15000)
+  try {
+    return await fetch(request.url, { ...request.options, signal: controller.signal })
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('连接超时')
+    throw error
+  } finally {
+    window.clearTimeout(timeout)
+  }
 }
 
 function handleAvatarUpload(event) {
@@ -1059,7 +1157,7 @@ async function searchTmdb({ refresh = false } = {}) {
   try {
     const base = tmdbApiBase.value.trim().replace(/\/$/, '')
     const request = tmdbRequest(`${base}/search/movie`, { query, language: 'zh-CN', include_adult: 'false', page: '1' })
-    const response = await fetch(request.url, request.options)
+    const response = await executeTmdbRequest(request)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const data = await response.json()
     tmdbResults.value = data.results || []
@@ -1092,7 +1190,7 @@ async function loadMoreTmdb() {
     const base = tmdbApiBase.value.trim().replace(/\/$/, '')
     const nextPage = tmdbPage.value + 1
     const request = tmdbRequest(`${base}/search/movie`, { query: tmdbSearchLastQuery.value, language: 'zh-CN', include_adult: 'false', page: String(nextPage) })
-    const response = await fetch(request.url, request.options)
+    const response = await executeTmdbRequest(request)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const data = await response.json()
     const existingIds = new Set(tmdbResults.value.map((item) => item.id))
@@ -1244,13 +1342,13 @@ async function ensureTmdbDetails(movie) {
       include_video_language: 'zh,en,null',
       include_image_language: 'zh,en,null',
     })
-    const response = await fetch(request.url, request.options)
+    const response = await executeTmdbRequest(request)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const detail = await response.json()
     let collectionDetail = null
     if (detail.belongs_to_collection?.id) {
       const collectionRequest = tmdbRequest(`${base}/collection/${detail.belongs_to_collection.id}`, { language: 'zh-CN' })
-      const collectionResponse = await fetch(collectionRequest.url, collectionRequest.options)
+      const collectionResponse = await executeTmdbRequest(collectionRequest)
       if (collectionResponse.ok) collectionDetail = await collectionResponse.json()
     }
     const director = detail.credits?.crew?.find((person) => person.job === 'Director')
@@ -1343,7 +1441,7 @@ async function requestPersonDetails(person) {
   try {
     const base = tmdbApiBase.value.trim().replace(/\/$/, '')
     const request = tmdbRequest(`${base}/person/${person.id}`, { language: 'zh-CN', append_to_response: 'movie_credits' })
-    const response = await fetch(request.url, request.options)
+    const response = await executeTmdbRequest(request)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const detail = await response.json()
     const imageBase = tmdbImageBase.value.trim().replace(/\/$/, '')
@@ -1378,7 +1476,6 @@ function navigateDetail(direction) {
         aria-modal="true"
         aria-label="CineLog 启动动画"
       >
-        <button class="first-launch-intro__skip" type="button" @click="completeStartupAnimation">跳过</button>
         <div class="first-launch-intro__grain" aria-hidden="true"></div>
         <div class="first-launch-intro__beam" aria-hidden="true"></div>
         <div class="first-launch-intro__content">
@@ -1699,7 +1796,7 @@ function navigateDetail(direction) {
       <MovieDetail ref="movieDetail" v-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" :entry-mode="detailEntry" :layout-order="detailLayout.map((item) => item.id)" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" @update-record="updateMovieRecord" @request-person="requestPersonDetails" />
 
       <Transition name="settings-shell">
-        <section v-if="currentPage === 'settings'" class="personal-settings">
+        <section v-if="currentPage === 'settings'" class="personal-settings" @click.capture="animateSettingsChoice">
           <Transition :name="settingsTransitionName" mode="out-in">
             <div :key="settingsSection" class="settings-page">
               <header class="settings-header settings-piece" style="--settings-order: 0">
@@ -1721,6 +1818,11 @@ function navigateDetail(direction) {
                 </button>
 
                 <div class="settings-category settings-piece" style="--settings-order: 2">
+                  <button type="button" class="theme-mode-row" :aria-label="`模式选择，当前${themeModeLabel}，点击切换`" @click="cycleThemeMode">
+                    <i class="settings-icon settings-icon--theme"><MoonStar :size="18" /></i>
+                    <span><strong>模式选择</strong><small>背景与手机显示模式同步</small></span>
+                    <b>{{ themeModeLabel }}</b>
+                  </button>
                   <button @click="openSettingsSection('home')"><i class="settings-icon settings-icon--home"><House :size="18" /></i><span><strong>首页编辑</strong><small>统计单位、展示数量</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('library')"><i class="settings-icon settings-icon--library"><SlidersHorizontal :size="18" /></i><span><strong>列表设置</strong><small>标签、排序与工具位置</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('categories')"><i class="settings-icon settings-icon--categories"><FolderTree :size="18" /></i><span><strong>分类设置</strong><small>两层分类、自定义与拖动排序</small></span><ChevronRight :size="18" /></button>
@@ -1818,6 +1920,7 @@ function navigateDetail(direction) {
                   <Database :size="20" />
                   <div><strong>{{ tmdbNetworkMode === 'hosts' ? '使用 CheckTMDB hosts' : '使用你自己的服务地址' }}</strong><p>{{ tmdbNetworkMode === 'hosts' ? 'CheckTMDB 提供域名到可用 IP 的映射，不是 API 代理。配置到系统或路由器 hosts 后，应用仍访问 TMDB 官方域名。' : '仅填写你信任的 TMDB 反代地址；图片地址也需由该服务支持。' }}</p></div>
                 </div>
+                <div v-if="isNativeApp && tmdbNetworkMode === 'hosts'" class="tmdb-native-warning settings-piece" style="--settings-order: 3"><strong>APK 不会继承电脑 hosts</strong><span>需要在手机或路由器配置 hosts；也可以切换“自定义地址”，填写手机能够访问的 HTTPS 服务。</span></div>
                 <div class="settings-group settings-piece" style="--settings-order: 3"><label for="tmdb-token">API 密钥</label><input id="tmdb-token" v-model.trim="tmdbToken" type="password" autocomplete="off" placeholder="输入 TMDB v3 API 密钥" /><small>支持 v3 API 密钥；旧的 Read Access Token 也会自动识别。密钥只保存在当前浏览器。</small></div>
                 <div class="settings-group settings-piece" style="--settings-order: 4"><label for="tmdb-api">API 地址</label><input id="tmdb-api" v-model.trim="tmdbApiBase" inputmode="url" /><small>官方默认：https://api.themoviedb.org/3</small></div>
                 <div class="settings-group settings-piece" style="--settings-order: 5"><label for="tmdb-image">图片地址</label><input id="tmdb-image" v-model.trim="tmdbImageBase" inputmode="url" /><small>官方默认：https://image.tmdb.org/t/p</small></div>

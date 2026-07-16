@@ -10,14 +10,18 @@ const emit = defineEmits(['update:categories'])
 const activeId = ref(props.categories[0]?.id || '')
 const newParentName = ref('')
 const newTagName = ref('')
-const dragState = ref(null)
+type DragKind = 'parent' | 'child'
+type DragState = { type: DragKind; id: string; pointerId: number; startX: number; startY: number; element: HTMLElement }
+type PendingHold = { startX: number; startY: number; pointerType: string; element: HTMLElement }
+
+const dragState = ref<DragState | null>(null)
 const selectedChildId = ref('')
 const addOpen = ref(false)
 const parentAddInput = ref(null)
 const page = ref(1)
 const pageSize = 10
-let holdTimer
-let pendingHold
+let holdTimer: number | undefined
+let pendingHold: PendingHold | null = null
 
 const activeCategory = computed(() => props.categories.find((category) => category.id === activeId.value))
 const pageCount = computed(() => Math.max(1, Math.ceil((activeCategory.value?.children.length || 0) / pageSize)))
@@ -94,21 +98,24 @@ function changePage(nextPage) {
   selectedChildId.value = ''
 }
 
-function startHold(event, type, id) {
+function startHold(event: PointerEvent, type: DragKind, id: string) {
   if (event.button != null && event.button !== 0) return
+  const element = event.currentTarget as HTMLElement
   clearTimeout(holdTimer)
   const pointerId = event.pointerId
   const startX = event.clientX
   const startY = event.clientY
-  pendingHold = { startX, startY }
+  pendingHold = { startX, startY, pointerType: event.pointerType, element }
+  element.setPointerCapture?.(pointerId)
   holdTimer = window.setTimeout(() => {
-    dragState.value = { type, id, pointerId, startX, startY }
-    event.currentTarget?.setPointerCapture?.(pointerId)
+    if (!pendingHold) return
+    dragState.value = { type, id, pointerId, startX, startY, element }
+    document.body.classList.add('category-drag-active')
     if (navigator.vibrate) navigator.vibrate(18)
-  }, 350)
+  }, event.pointerType === 'touch' ? 300 : 350)
 }
 
-function moveHold(event) {
+function moveHold(event: PointerEvent) {
   const drag = dragState.value
   if (!drag) return
   event.preventDefault()
@@ -134,24 +141,35 @@ function moveHold(event) {
   emit('update:categories', categories)
 }
 
-function endHold() {
+function endHold(event?: PointerEvent) {
   clearTimeout(holdTimer)
+  const element = dragState.value?.element || pendingHold?.element
+  if (element && event?.pointerId != null && element.hasPointerCapture?.(event.pointerId)) {
+    element.releasePointerCapture(event.pointerId)
+  }
   pendingHold = null
   dragState.value = null
+  document.body.classList.remove('category-drag-active')
 }
 
-function cancelHold(event) {
-  if (!dragState.value && pendingHold && Math.hypot(event.clientX - pendingHold.startX, event.clientY - pendingHold.startY) > 8) {
+function cancelHold(event: PointerEvent) {
+  if (!dragState.value && pendingHold) {
+    const distance = Math.hypot(event.clientX - pendingHold.startX, event.clientY - pendingHold.startY)
+    const tolerance = pendingHold.pointerType === 'touch' ? 18 : 8
+    if (distance <= tolerance) return
     clearTimeout(holdTimer)
     pendingHold = null
   }
 }
 
-onBeforeUnmount(() => clearTimeout(holdTimer))
+onBeforeUnmount(() => {
+  clearTimeout(holdTimer)
+  document.body.classList.remove('category-drag-active')
+})
 </script>
 
 <template>
-  <div class="category-manager settings-piece" style="--settings-order: 1" @pointermove="moveHold" @pointerup="endHold" @pointercancel="endHold">
+  <div class="category-manager settings-piece" :class="{ 'is-dragging': dragState }" style="--settings-order: 1" @pointermove="moveHold" @pointerup="endHold" @pointercancel="endHold">
     <div class="category-manager-intro">
       <strong>内容分类</strong>
       <span>点按切换，长按后拖动调整显示顺序</span>
@@ -170,7 +188,7 @@ onBeforeUnmount(() => clearTimeout(holdTimer))
           @click="setActive(category.id)"
           @pointerdown="startHold($event, 'parent', category.id)"
           @pointermove="cancelHold"
-          @pointerleave="!dragState && endHold()"
+          @contextmenu.prevent
         >
           <GripVertical :size="13" />
           <span>{{ category.label }}</span>
@@ -201,7 +219,7 @@ onBeforeUnmount(() => clearTimeout(holdTimer))
           @click="selectChild(child.id)"
           @pointerdown="startHold($event, 'child', child.id)"
           @pointermove="cancelHold"
-          @pointerleave="!dragState && endHold()"
+          @contextmenu.prevent
         >
           <GripVertical :size="16" />
           <span>{{ child.label }}</span>
