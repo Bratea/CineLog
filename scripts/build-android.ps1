@@ -1,12 +1,19 @@
 $ErrorActionPreference = 'Stop'
 
-$javaSettings = (& java -XshowSettings:properties -version 2>&1 | Out-String)
-$javaHomeMatch = [regex]::Match($javaSettings, 'java\.home\s*=\s*(.+)')
-if (-not $javaHomeMatch.Success) {
-  throw '未找到可用的 JDK。请安装 JDK 21 后重试。'
+$javaCandidates = @(
+  (Get-ChildItem 'C:\Program Files\Java' -Directory -Filter 'jdk-21*' -ErrorAction SilentlyContinue |
+    Sort-Object Name -Descending |
+    Select-Object -ExpandProperty FullName),
+  $env:JAVA_HOME,
+  'C:\Program Files\Android\Android Studio\jbr'
+) | Where-Object { $_ -and (Test-Path (Join-Path $_ 'bin\java.exe')) }
+
+$javaHome = $javaCandidates | Select-Object -First 1
+if (-not $javaHome) {
+  throw 'No usable JDK was found. Install JDK 21 and try again.'
 }
 
-$env:JAVA_HOME = $javaHomeMatch.Groups[1].Value.Trim()
+$env:JAVA_HOME = $javaHome
 
 & npm.cmd run app:sync
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

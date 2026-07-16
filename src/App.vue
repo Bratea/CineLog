@@ -42,7 +42,9 @@ const themeModeLabel = computed(() => ({ system: '跟随系统', light: '浅色'
 const themeSwitching = ref(false)
 const startupAnimationEnabled = ref(localStorage.getItem(STARTUP_ANIMATION_ENABLED_KEY) !== 'false')
 const showStartupAnimation = ref(startupAnimationEnabled.value)
+const viewModeSwitching = ref(false)
 let startupAnimationTimer
+let viewModeSwitchTimer
 
 function completeStartupAnimation() {
   if (!showStartupAnimation.value) return
@@ -201,6 +203,7 @@ const overviewExpanded = ref(false)
 const recordNotice = ref(null)
 const libraryNotice = ref(null)
 const homeNotice = ref(null)
+const settingsNotice = ref(null)
 const recordClosing = ref(false)
 const libraryWatchFilter = ref('all')
 const librarySortBy = ref(localStorage.getItem('movie-library-sort') || 'release')
@@ -397,6 +400,8 @@ let watchConfirmTimer
 let recordNoticeTimer
 let libraryNoticeTimer
 let homeNoticeTimer
+let settingsNoticeTimer
+let settingsAutoInputTimer
 
 const watchedCount = computed(() => movieRecords.value.filter((movie) => movie.watched).length)
 const displayedTmdbResults = computed(() => tmdbResults.value.slice(0, tmdbVisibleCount.value))
@@ -532,9 +537,16 @@ function setWatchStat(value) {
 }
 
 function toggleViewMode() {
+  if (viewModeSwitching.value) return
+  viewModeSwitching.value = true
   homeSwapTransition.value = 'drop-swap'
   viewMode.value = viewMode.value === 'cards' ? 'list' : 'cards'
-  window.setTimeout(() => { homeSwapTransition.value = 'card-swap' }, 460)
+  const switchDuration = ({ high: 620, medium: 400, low: 190 })[motionIntensity.value]
+  window.clearTimeout(viewModeSwitchTimer)
+  viewModeSwitchTimer = window.setTimeout(() => {
+    viewModeSwitching.value = false
+    homeSwapTransition.value = 'card-swap'
+  }, switchDuration)
 }
 
 function openHomeCustomLimit() {
@@ -616,6 +628,7 @@ onBeforeUnmount(() => {
   window.clearTimeout(libraryTagHoldTimer)
   window.clearTimeout(startupAnimationTimer)
   window.clearTimeout(themeSwitchTimer)
+  window.clearTimeout(viewModeSwitchTimer)
   document.documentElement.classList.remove('theme-transitioning')
   systemThemeQuery.removeEventListener('change', handleSystemThemeChange)
 })
@@ -754,6 +767,9 @@ function animateSettingsChoice(event: MouseEvent) {
     '.period-options,.tag-limit-options,.library-side-options,.library-sort-options,.library-priority-options,.category-options,.category-parent-list,.network-options,.motion-intensity-options,.profile-color-palette,.library-chip-scroll,.library-media-menu,.date-option-row>div',
   ) as HTMLElement | null
   if (!group || target.classList.contains('selected')) return
+  if (currentPage.value === 'settings' && !['hub', 'profile', 'categories', 'detail-layout'].includes(settingsSection.value)) {
+    window.setTimeout(() => showSettingsAutoSaved(), 90)
+  }
 
   const previous = group.querySelector<HTMLElement>('button.selected')
   const activeMotionIntensity: MotionIntensity = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'low' : motionIntensity.value
@@ -830,6 +846,27 @@ function animateSettingsChoice(event: MouseEvent) {
     target.classList.remove('choice-infecting')
     previous?.classList.remove('choice-releasing')
   }, 560)
+}
+
+function showSettingsAutoSaved(message = '更改已写入当前设备') {
+  window.clearTimeout(settingsNoticeTimer)
+  settingsNotice.value = { title: '设置已自动保存', message }
+  settingsNoticeTimer = window.setTimeout(() => { settingsNotice.value = null }, 2300)
+}
+
+function handleSettingsAutoInput(event: Event) {
+  const target = event.target as HTMLInputElement | null
+  if (!target?.matches?.('[data-auto-save]')) return
+  const label = target.closest('.settings-group')?.querySelector('label')?.textContent?.trim()
+  window.clearTimeout(settingsAutoInputTimer)
+  settingsAutoInputTimer = window.setTimeout(() => {
+    showSettingsAutoSaved(label ? `${label}已自动保存` : '输入内容已自动保存')
+  }, 720)
+}
+
+function resetDetailLayoutWithNotice() {
+  resetDetailLayout()
+  showSettingsAutoSaved('详情布局已恢复默认顺序')
 }
 
 function chooseYear(year) {
@@ -1668,8 +1705,10 @@ function navigateDetail(direction) {
               </button>
             </section>
 
-            <button class="view-mode-button" :class="{ 'is-list': viewMode === 'list' }" :aria-label="viewMode === 'cards' ? '切换为列表视图' : '切换为卡片视图'" @click="toggleViewMode">
-              <img :src="viewMode === 'cards' ? pixelCards : pixelRows" alt="" />
+            <button class="view-mode-button" :class="{ 'is-list': viewMode === 'list', switching: viewModeSwitching }" :disabled="viewModeSwitching" :aria-label="viewMode === 'cards' ? '切换为列表视图' : '切换为卡片视图'" @click="toggleViewMode">
+              <Transition name="view-mode-icon" mode="out-in">
+                <img :key="viewMode" :src="viewMode === 'cards' ? pixelCards : pixelRows" alt="" />
+              </Transition>
             </button>
           </div>
         </header>
@@ -1917,7 +1956,10 @@ function navigateDetail(direction) {
       <MovieDetail ref="movieDetail" v-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" :entry-mode="detailEntry" :motion-intensity="motionIntensity" :layout-order="detailLayout.map((item) => item.id)" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" @update-record="updateMovieRecord" @request-person="requestPersonDetails" />
 
       <Transition name="settings-shell">
-        <section v-if="currentPage === 'settings'" class="personal-settings">
+        <section v-if="currentPage === 'settings'" class="personal-settings" @input.capture="handleSettingsAutoInput">
+          <Transition name="settings-notice">
+            <AppNotice v-if="settingsNotice" :key="`${settingsNotice.title}-${settingsNotice.message}`" :title="settingsNotice.title" :message="settingsNotice.message" tone="success" placement="settings" :motion="motionIntensity" :duration="2300" />
+          </Transition>
           <Transition :name="settingsTransitionName" mode="out-in">
             <div :key="settingsSection" class="settings-page">
               <header class="settings-header settings-piece" style="--settings-order: 0">
@@ -1998,11 +2040,11 @@ function navigateDetail(direction) {
               </template>
 
               <template v-else-if="settingsSection === 'categories'">
-                <CategorySettings v-model:categories="categorySettings" />
+                <CategorySettings v-model:categories="categorySettings" :motion-intensity="motionIntensity" @saved="showSettingsAutoSaved" />
               </template>
 
               <template v-else-if="settingsSection === 'detail-layout'">
-                <DetailLayoutSettings v-model:modules="detailLayout" @reset="resetDetailLayout" />
+                <DetailLayoutSettings v-model:modules="detailLayout" :motion-intensity="motionIntensity" @saved="showSettingsAutoSaved" @reset="resetDetailLayoutWithNotice" />
               </template>
 
               <template v-else-if="settingsSection === 'animation'">
@@ -2041,7 +2083,7 @@ function navigateDetail(direction) {
                       :class="{ enabled: startupAnimationEnabled }"
                       :aria-pressed="startupAnimationEnabled"
                       :aria-label="startupAnimationEnabled ? '关闭启动动画' : '开启启动动画'"
-                      @click="startupAnimationEnabled = !startupAnimationEnabled"
+                      @click="startupAnimationEnabled = !startupAnimationEnabled; showSettingsAutoSaved('开机动画设置已自动保存')"
                     ><i></i></button>
                   </div>
                   <button type="button" class="startup-animation-preview" @click="previewStartupAnimation"><Play :size="15" />预览启动动画</button>
@@ -2064,9 +2106,9 @@ function navigateDetail(direction) {
                   <div><strong>{{ tmdbNetworkMode === 'hosts' ? '使用 CheckTMDB hosts' : '使用你自己的服务地址' }}</strong><p>{{ tmdbNetworkMode === 'hosts' ? 'CheckTMDB 提供域名到可用 IP 的映射，不是 API 代理。配置到系统或路由器 hosts 后，应用仍访问 TMDB 官方域名。' : '仅填写你信任的 TMDB 反代地址；图片地址也需由该服务支持。' }}</p></div>
                 </div>
                 <div v-if="isNativeApp && tmdbNetworkMode === 'hosts'" class="tmdb-native-warning settings-piece" style="--settings-order: 3"><strong>CheckTMDB 无需 VPN</strong><span>它通过 hosts 修正 DNS 污染；APK 不会继承电脑 hosts，普通未 Root 手机需要路由器 hosts，或使用可访问的 HTTPS 自定义地址。</span></div>
-                <div class="settings-group settings-piece" style="--settings-order: 3"><label for="tmdb-token">API 密钥</label><input id="tmdb-token" v-model.trim="tmdbToken" type="password" autocomplete="off" placeholder="输入 TMDB v3 API 密钥" /><small>支持 v3 API 密钥；旧的 Read Access Token 也会自动识别。密钥只保存在当前浏览器。</small></div>
-                <div class="settings-group settings-piece" style="--settings-order: 4"><label for="tmdb-api">API 地址</label><input id="tmdb-api" v-model.trim="tmdbApiBase" inputmode="url" /><small>官方默认：https://api.themoviedb.org/3</small></div>
-                <div class="settings-group settings-piece" style="--settings-order: 5"><label for="tmdb-image">图片地址</label><input id="tmdb-image" v-model.trim="tmdbImageBase" inputmode="url" /><small>官方默认：https://image.tmdb.org/t/p</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 3"><label for="tmdb-token">API 密钥</label><input id="tmdb-token" v-model.trim="tmdbToken" data-auto-save type="password" autocomplete="off" placeholder="输入 TMDB v3 API 密钥" /><small>支持 v3 API 密钥；旧的 Read Access Token 也会自动识别。密钥只保存在当前浏览器。</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 4"><label for="tmdb-api">API 地址</label><input id="tmdb-api" v-model.trim="tmdbApiBase" data-auto-save inputmode="url" /><small>官方默认：https://api.themoviedb.org/3</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 5"><label for="tmdb-image">图片地址</label><input id="tmdb-image" v-model.trim="tmdbImageBase" data-auto-save inputmode="url" /><small>官方默认：https://image.tmdb.org/t/p</small></div>
                 <div v-if="tmdbNetworkMode === 'hosts'" class="hosts-links settings-piece" style="--settings-order: 6"><a href="https://raw.githubusercontent.com/cnwikee/CheckTMDB/refs/heads/main/Tmdb_host_ipv4" target="_blank" rel="noreferrer">IPv4 hosts <ExternalLink :size="13" /></a><a href="https://raw.githubusercontent.com/cnwikee/CheckTMDB/refs/heads/main/Tmdb_host_ipv6" target="_blank" rel="noreferrer">IPv6 hosts <ExternalLink :size="13" /></a></div>
                 <button class="tmdb-test settings-piece" style="--settings-order: 7" :disabled="tmdbTestState === 'testing'" @click="testTmdbConnection">{{ tmdbTestState === 'testing' ? '正在测试…' : '测试连接' }}</button>
                 <p v-if="tmdbTestMessage" class="tmdb-result" :class="`is-${tmdbTestState}`">{{ tmdbTestMessage }}</p>

@@ -3,9 +3,9 @@ import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { ChevronLeft, ChevronRight, GripVertical, Plus, X } from 'lucide-vue-next'
 import type { Category } from '../types'
 
-const props = defineProps<{ categories: Category[] }>()
+const props = defineProps<{ categories: Category[]; motionIntensity?: 'high' | 'medium' | 'low' }>()
 
-const emit = defineEmits(['update:categories'])
+const emit = defineEmits(['update:categories', 'saved'])
 
 const activeId = ref(props.categories[0]?.id || '')
 const newParentName = ref('')
@@ -22,6 +22,8 @@ const page = ref(1)
 const pageSize = 10
 let holdTimer: number | undefined
 let pendingHold: PendingHold | null = null
+let lastReorderAt = 0
+let dragChanged = false
 
 const activeCategory = computed(() => props.categories.find((category) => category.id === activeId.value))
 const pageCount = computed(() => Math.max(1, Math.ceil((activeCategory.value?.children.length || 0) / pageSize)))
@@ -32,6 +34,11 @@ function cloneCategories() {
     ...category,
     children: category.children.map((child) => ({ ...child })),
   }))
+}
+
+function commitCategories(categories, message = '分类顺序已自动保存') {
+  emit('update:categories', categories)
+  emit('saved', message)
 }
 
 function setActive(id) {
@@ -66,7 +73,7 @@ function addParentCategory() {
   selectedChildId.value = ''
   page.value = 1
   addOpen.value = false
-  emit('update:categories', categories)
+  commitCategories(categories, '大分类已添加并自动保存')
 }
 
 function addTag() {
@@ -80,7 +87,7 @@ function addTag() {
   newTagName.value = ''
   selectedChildId.value = childId
   page.value = Math.max(1, Math.ceil(active.children.length / pageSize))
-  emit('update:categories', categories)
+  commitCategories(categories, '标签已添加并自动保存')
 }
 
 function removeCategory(childId) {
@@ -90,7 +97,7 @@ function removeCategory(childId) {
   active.children = active.children.filter((child) => child.id !== childId)
   if (selectedChildId.value === childId) selectedChildId.value = ''
   page.value = Math.min(page.value, Math.max(1, Math.ceil(active.children.length / pageSize)))
-  emit('update:categories', categories)
+  commitCategories(categories, '标签已删除并自动保存')
 }
 
 function changePage(nextPage) {
@@ -110,6 +117,7 @@ function startHold(event: PointerEvent, type: DragKind, id: string) {
   holdTimer = window.setTimeout(() => {
     if (!pendingHold) return
     dragState.value = { type, id, pointerId, startX, startY, element }
+    dragChanged = false
     document.body.classList.add('category-drag-active')
     if (navigator.vibrate) navigator.vibrate(18)
   }, event.pointerType === 'touch' ? 300 : 350)
@@ -122,6 +130,9 @@ function moveHold(event: PointerEvent) {
   const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.(`[data-drag-type="${drag.type}"]`) as HTMLElement | null
   const targetId = target?.dataset.dragId
   if (!targetId || targetId === drag.id) return
+  const reorderInterval = props.motionIntensity === 'high' ? 190 : props.motionIntensity === 'medium' ? 125 : 70
+  if (performance.now() - lastReorderAt < reorderInterval) return
+  lastReorderAt = performance.now()
 
   const categories = cloneCategories()
   if (drag.type === 'parent') {
@@ -139,17 +150,21 @@ function moveHold(event: PointerEvent) {
     active.children.splice(to, 0, moved)
   }
   emit('update:categories', categories)
+  dragChanged = true
 }
 
 function endHold(event?: PointerEvent) {
   clearTimeout(holdTimer)
+  const shouldNotify = Boolean(dragState.value && dragChanged)
   const element = dragState.value?.element || pendingHold?.element
   if (element && event?.pointerId != null && element.hasPointerCapture?.(event.pointerId)) {
     element.releasePointerCapture(event.pointerId)
   }
   pendingHold = null
   dragState.value = null
+  dragChanged = false
   document.body.classList.remove('category-drag-active')
+  if (shouldNotify) emit('saved', '分类顺序已自动保存')
 }
 
 function cancelHold(event: PointerEvent) {
@@ -180,7 +195,7 @@ onBeforeUnmount(() => {
         <button
           v-for="(category, index) in categories"
           :key="category.id"
-          :style="{ '--move-delay': `${index * 24}ms` }"
+          :style="{ '--move-delay-high': `${index * 54}ms`, '--move-delay-medium': `${index * 30}ms` }"
           :data-drag-id="category.id"
           data-drag-type="parent"
           :class="{ selected: activeId === category.id, dragging: dragState?.type === 'parent' && dragState?.id === category.id }"
@@ -214,7 +229,7 @@ onBeforeUnmount(() => {
         <div
           v-for="(child, index) in paginatedChildren"
           :key="child.id"
-          :style="{ '--move-delay': `${index * 24}ms` }"
+          :style="{ '--move-delay-high': `${index * 54}ms`, '--move-delay-medium': `${index * 30}ms` }"
           :data-drag-id="child.id"
           data-drag-type="child"
           :class="{ selected: selectedChildId === child.id, dragging: dragState?.type === 'child' && dragState?.id === child.id }"

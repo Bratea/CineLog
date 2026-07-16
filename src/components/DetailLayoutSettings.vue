@@ -3,12 +3,14 @@ import { onBeforeUnmount, ref } from 'vue'
 import { ChevronDown, ChevronUp, GripVertical, RotateCcw } from 'lucide-vue-next'
 import type { DetailLayoutModule } from '../types'
 
-const props = defineProps<{ modules: DetailLayoutModule[] }>()
+const props = defineProps<{ modules: DetailLayoutModule[]; motionIntensity?: 'high' | 'medium' | 'low' }>()
 
-const emit = defineEmits(['update:modules', 'reset'])
+const emit = defineEmits(['update:modules', 'reset', 'saved'])
 const dragId = ref('')
 let holdTimer: number | undefined
 let pendingHold: { x: number; y: number; pointerType: string; element: HTMLElement } | null = null
+let lastReorderAt = 0
+let dragChanged = false
 
 function cloneModules() {
   return props.modules.map((item) => ({ ...item }))
@@ -22,6 +24,7 @@ function moveModule(id, direction) {
   const [moved] = modules.splice(from, 1)
   modules.splice(to, 0, moved)
   emit('update:modules', modules)
+  emit('saved', '详情模块顺序已自动保存')
 }
 
 function startHold(event: PointerEvent, id: string) {
@@ -33,6 +36,7 @@ function startHold(event: PointerEvent, id: string) {
   holdTimer = window.setTimeout(() => {
     if (!pendingHold) return
     dragId.value = id
+    dragChanged = false
     document.body.classList.add('category-drag-active')
     navigator.vibrate?.(18)
   }, event.pointerType === 'touch' ? 300 : 350)
@@ -53,6 +57,9 @@ function moveHold(event: PointerEvent) {
   const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('[data-layout-id]') as HTMLElement | null
   const targetId = target?.dataset.layoutId
   if (!targetId || targetId === dragId.value) return
+  const reorderInterval = props.motionIntensity === 'high' ? 190 : props.motionIntensity === 'medium' ? 125 : 70
+  if (performance.now() - lastReorderAt < reorderInterval) return
+  lastReorderAt = performance.now()
   const modules = cloneModules()
   const from = modules.findIndex((item) => item.id === dragId.value)
   const to = modules.findIndex((item) => item.id === targetId)
@@ -60,17 +67,21 @@ function moveHold(event: PointerEvent) {
   const [moved] = modules.splice(from, 1)
   modules.splice(to, 0, moved)
   emit('update:modules', modules)
+  dragChanged = true
 }
 
 function endHold(event?: PointerEvent) {
   clearTimeout(holdTimer)
+  const shouldNotify = Boolean(dragId.value && dragChanged)
   const element = pendingHold?.element
   if (element && event?.pointerId != null && element.hasPointerCapture?.(event.pointerId)) {
     element.releasePointerCapture(event.pointerId)
   }
   pendingHold = null
   dragId.value = ''
+  dragChanged = false
   document.body.classList.remove('category-drag-active')
+  if (shouldNotify) emit('saved', '详情模块顺序已自动保存')
 }
 
 onBeforeUnmount(() => {
@@ -94,9 +105,9 @@ onBeforeUnmount(() => {
       <article
         v-for="(item, index) in modules"
         :key="item.id"
-        :style="{ '--move-delay': `${index * 32}ms` }"
+        :style="{ '--move-delay-high': `${index * 58}ms`, '--move-delay-medium': `${index * 32}ms` }"
         :data-layout-id="item.id"
-        :class="{ dragging: dragId === item.id }"
+        :class="[`is-${item.tone}`, { dragging: dragId === item.id }]"
         @pointerdown="startHold($event, item.id)"
         @pointermove="cancelPendingHold"
         @contextmenu.prevent
