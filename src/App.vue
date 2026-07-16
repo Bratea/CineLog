@@ -725,7 +725,7 @@ async function testTmdbConnection() {
   } catch (error) {
     tmdbTestState.value = 'error'
     const nativeHint = Capacitor.isNativePlatform() && tmdbNetworkMode.value === 'hosts'
-      ? 'APK 不会继承电脑 hosts，请在手机网络配置 hosts/VPN，或切换为 HTTPS 自定义地址。'
+      ? 'CheckTMDB 无需 VPN；但 APK 不会继承电脑 hosts，当前需在手机或路由器配置 hosts，或切换为 HTTPS 自定义地址。'
       : '请检查 Token 与服务地址。'
     tmdbTestMessage.value = `连接失败（${error.message}）。${nativeHint}`
   }
@@ -1895,7 +1895,7 @@ function navigateDetail(direction) {
                   <Database :size="20" />
                   <div><strong>{{ tmdbNetworkMode === 'hosts' ? '使用 CheckTMDB hosts' : '使用你自己的服务地址' }}</strong><p>{{ tmdbNetworkMode === 'hosts' ? 'CheckTMDB 提供域名到可用 IP 的映射，不是 API 代理。配置到系统或路由器 hosts 后，应用仍访问 TMDB 官方域名。' : '仅填写你信任的 TMDB 反代地址；图片地址也需由该服务支持。' }}</p></div>
                 </div>
-                <div v-if="isNativeApp && tmdbNetworkMode === 'hosts'" class="tmdb-native-warning settings-piece" style="--settings-order: 3"><strong>APK 不会继承电脑 hosts</strong><span>需要在手机或路由器配置 hosts；也可以切换“自定义地址”，填写手机能够访问的 HTTPS 服务。</span></div>
+                <div v-if="isNativeApp && tmdbNetworkMode === 'hosts'" class="tmdb-native-warning settings-piece" style="--settings-order: 3"><strong>CheckTMDB 无需 VPN</strong><span>它通过 hosts 修正 DNS 污染；APK 不会继承电脑 hosts，普通未 Root 手机需要路由器 hosts，或使用可访问的 HTTPS 自定义地址。</span></div>
                 <div class="settings-group settings-piece" style="--settings-order: 3"><label for="tmdb-token">API 密钥</label><input id="tmdb-token" v-model.trim="tmdbToken" type="password" autocomplete="off" placeholder="输入 TMDB v3 API 密钥" /><small>支持 v3 API 密钥；旧的 Read Access Token 也会自动识别。密钥只保存在当前浏览器。</small></div>
                 <div class="settings-group settings-piece" style="--settings-order: 4"><label for="tmdb-api">API 地址</label><input id="tmdb-api" v-model.trim="tmdbApiBase" inputmode="url" /><small>官方默认：https://api.themoviedb.org/3</small></div>
                 <div class="settings-group settings-piece" style="--settings-order: 5"><label for="tmdb-image">图片地址</label><input id="tmdb-image" v-model.trim="tmdbImageBase" inputmode="url" /><small>官方默认：https://image.tmdb.org/t/p</small></div>
