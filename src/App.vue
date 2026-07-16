@@ -114,7 +114,6 @@ const username = ref(localStorage.getItem('movie-username') || '通通')
 const activeWatchStat = ref('watched')
 const viewMode = ref('cards')
 const homeSwapTransition = ref('card-swap')
-const surfaceBridge = ref(null)
 const statPeriod = ref(localStorage.getItem('movie-stat-period') || 'year')
 const savedHomeDisplayLimit = Number(localStorage.getItem('movie-home-limit'))
 const homeDisplayLimit = ref(Number.isFinite(savedHomeDisplayLimit) && savedHomeDisplayLimit > 0 ? Math.min(99, Math.round(savedHomeDisplayLimit)) : 10)
@@ -326,7 +325,6 @@ let watchConfirmTimer
 let recordNoticeTimer
 let libraryNoticeTimer
 let homeNoticeTimer
-let surfaceBridgeTimer
 
 const watchedCount = computed(() => movieRecords.value.filter((movie) => movie.watched).length)
 const displayedTmdbResults = computed(() => tmdbResults.value.slice(0, tmdbVisibleCount.value))
@@ -488,18 +486,22 @@ function selectLibraryQuickGenre(genre) {
 
 function startLibraryTagHold(event, genre) {
   if (event.button != null && event.button !== 0) return
+  const element = event.currentTarget as HTMLElement
   window.clearTimeout(libraryTagHoldTimer)
-  pendingLibraryTagHold = { x: event.clientX, y: event.clientY }
+  pendingLibraryTagHold = { x: event.clientX, y: event.clientY, pointerType: event.pointerType, element }
+  element.setPointerCapture?.(event.pointerId)
   libraryTagHoldTimer = window.setTimeout(() => {
+    if (!pendingLibraryTagHold) return
     libraryTagDragId.value = genre
     libraryTagSuppressClick.value = true
-    event.currentTarget?.setPointerCapture?.(event.pointerId)
     navigator.vibrate?.(18)
-  }, 350)
+  }, event.pointerType === 'touch' ? 300 : 350)
 }
 
 function cancelLibraryTagHold(event) {
-  if (!libraryTagDragId.value && pendingLibraryTagHold && Math.hypot(event.clientX - pendingLibraryTagHold.x, event.clientY - pendingLibraryTagHold.y) > 8) {
+  if (!libraryTagDragId.value && pendingLibraryTagHold) {
+    const tolerance = pendingLibraryTagHold.pointerType === 'touch' ? 18 : 8
+    if (Math.hypot(event.clientX - pendingLibraryTagHold.x, event.clientY - pendingLibraryTagHold.y) <= tolerance) return
     window.clearTimeout(libraryTagHoldTimer)
     pendingLibraryTagHold = null
   }
@@ -539,7 +541,6 @@ function resetDetailLayout() {
 onBeforeUnmount(() => {
   window.clearTimeout(libraryTagHoldTimer)
   window.clearTimeout(startupAnimationTimer)
-  window.clearTimeout(surfaceBridgeTimer)
   systemThemeQuery.removeEventListener('change', handleSystemThemeChange)
 })
 
@@ -859,7 +860,6 @@ function showHome() {
   if (currentPage.value === 'home') return
   libraryDateExpanded.value = false
   libraryMediaMenuOpen.value = false
-  showSurfaceBridge('home', 'back')
   transitionDirection.value = 'back'
   activeTab.value = 'home'
   currentPage.value = 'home'
@@ -867,20 +867,9 @@ function showHome() {
 
 function showLibrary() {
   if (currentPage.value === 'library') return
-  showSurfaceBridge('library', 'forward')
   transitionDirection.value = 'forward'
   activeTab.value = 'list'
   currentPage.value = 'library'
-}
-
-function showSurfaceBridge(target, direction) {
-  window.clearTimeout(surfaceBridgeTimer)
-  surfaceBridge.value = {
-    id: `${target}-${Date.now()}`,
-    target,
-    direction,
-  }
-  surfaceBridgeTimer = window.setTimeout(() => { surfaceBridge.value = null }, 820)
 }
 
 function dismissLibraryPopovers(event) {
@@ -1506,22 +1495,7 @@ function navigateDetail(direction) {
       <div class="ambient-orb ambient-orb--one" aria-hidden="true"></div>
       <div class="ambient-orb ambient-orb--two" aria-hidden="true"></div>
 
-      <Transition name="surface-bridge">
-        <div
-          v-if="surfaceBridge"
-          :key="surfaceBridge.id"
-          class="surface-bridge"
-          :class="`is-${surfaceBridge.direction}`"
-          aria-hidden="true"
-        >
-          <span class="surface-bridge__frames"><i></i><i></i><i></i></span>
-          <span class="surface-bridge__icon">
-            <img :src="surfaceBridge.target === 'library' ? pixelMovieList : pixelHome" alt="" />
-          </span>
-        </div>
-      </Transition>
-
-      <Transition :name="surfaceTransitionName" :duration="820">
+      <Transition :name="surfaceTransitionName" :duration="720">
         <section v-if="surfacePage === 'home'" key="home" class="surface-view home-surface">
         <Transition name="record-notice">
           <AppNotice v-if="homeNotice" :key="`${homeNotice.title}-${homeNotice.message}`" :title="homeNotice.title" :message="homeNotice.message" tone="warning" placement="home" :duration="2400" />

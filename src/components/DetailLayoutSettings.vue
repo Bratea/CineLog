@@ -7,8 +7,8 @@ const props = defineProps<{ modules: DetailLayoutModule[] }>()
 
 const emit = defineEmits(['update:modules', 'reset'])
 const dragId = ref('')
-let holdTimer
-let pendingHold
+let holdTimer: number | undefined
+let pendingHold: { x: number; y: number; pointerType: string; element: HTMLElement } | null = null
 
 function cloneModules() {
   return props.modules.map((item) => ({ ...item }))
@@ -24,25 +24,30 @@ function moveModule(id, direction) {
   emit('update:modules', modules)
 }
 
-function startHold(event, id) {
+function startHold(event: PointerEvent, id: string) {
   if (event.button != null && event.button !== 0) return
+  const element = event.currentTarget as HTMLElement
   clearTimeout(holdTimer)
-  pendingHold = { x: event.clientX, y: event.clientY }
+  pendingHold = { x: event.clientX, y: event.clientY, pointerType: event.pointerType, element }
+  element.setPointerCapture?.(event.pointerId)
   holdTimer = window.setTimeout(() => {
+    if (!pendingHold) return
     dragId.value = id
-    event.currentTarget?.setPointerCapture?.(event.pointerId)
+    document.body.classList.add('category-drag-active')
     navigator.vibrate?.(18)
-  }, 350)
+  }, event.pointerType === 'touch' ? 300 : 350)
 }
 
-function cancelPendingHold(event) {
-  if (!dragId.value && pendingHold && Math.hypot(event.clientX - pendingHold.x, event.clientY - pendingHold.y) > 8) {
+function cancelPendingHold(event: PointerEvent) {
+  if (!dragId.value && pendingHold) {
+    const tolerance = pendingHold.pointerType === 'touch' ? 18 : 8
+    if (Math.hypot(event.clientX - pendingHold.x, event.clientY - pendingHold.y) <= tolerance) return
     clearTimeout(holdTimer)
     pendingHold = null
   }
 }
 
-function moveHold(event) {
+function moveHold(event: PointerEvent) {
   if (!dragId.value) return
   event.preventDefault()
   const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('[data-layout-id]') as HTMLElement | null
@@ -57,13 +62,21 @@ function moveHold(event) {
   emit('update:modules', modules)
 }
 
-function endHold() {
+function endHold(event?: PointerEvent) {
   clearTimeout(holdTimer)
+  const element = pendingHold?.element
+  if (element && event?.pointerId != null && element.hasPointerCapture?.(event.pointerId)) {
+    element.releasePointerCapture(event.pointerId)
+  }
   pendingHold = null
   dragId.value = ''
+  document.body.classList.remove('category-drag-active')
 }
 
-onBeforeUnmount(() => clearTimeout(holdTimer))
+onBeforeUnmount(() => {
+  clearTimeout(holdTimer)
+  document.body.classList.remove('category-drag-active')
+})
 </script>
 
 <template>
@@ -85,7 +98,7 @@ onBeforeUnmount(() => clearTimeout(holdTimer))
         :class="{ dragging: dragId === item.id }"
         @pointerdown="startHold($event, item.id)"
         @pointermove="cancelPendingHold"
-        @pointerleave="!dragId && endHold()"
+        @contextmenu.prevent
       >
         <span class="detail-layout-rank">{{ String(index + 1).padStart(2, '0') }}</span>
         <i class="detail-layout-grip"><GripVertical :size="17" /></i>
