@@ -35,6 +35,7 @@ const systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)')
 const systemDark = ref(systemThemeQuery.matches)
 const resolvedTheme = computed(() => themeMode.value === 'system' ? (systemDark.value ? 'dark' : 'light') : themeMode.value)
 const themeModeLabel = computed(() => ({ system: '跟随系统', light: '浅色', dark: '深色' })[themeMode.value])
+const themeSwitching = ref(false)
 const startupAnimationEnabled = ref(localStorage.getItem(STARTUP_ANIMATION_ENABLED_KEY) !== 'false')
 const showStartupAnimation = ref(startupAnimationEnabled.value)
 let startupAnimationTimer
@@ -60,9 +61,21 @@ function previewStartupAnimation() {
   })
 }
 
+let themeSwitchTimer
 function cycleThemeMode() {
+  if (themeSwitching.value) return
   const modes: ThemeMode[] = ['system', 'light', 'dark']
-  themeMode.value = modes[(modes.indexOf(themeMode.value) + 1) % modes.length]
+  const nextMode = modes[(modes.indexOf(themeMode.value) + 1) % modes.length]
+  themeSwitching.value = true
+  document.documentElement.classList.add('theme-transitioning')
+  window.setTimeout(() => {
+    themeMode.value = nextMode
+  }, 90)
+  window.clearTimeout(themeSwitchTimer)
+  themeSwitchTimer = window.setTimeout(() => {
+    themeSwitching.value = false
+    document.documentElement.classList.remove('theme-transitioning')
+  }, 620)
 }
 
 function handleSystemThemeChange(event: MediaQueryListEvent) {
@@ -541,6 +554,8 @@ function resetDetailLayout() {
 onBeforeUnmount(() => {
   window.clearTimeout(libraryTagHoldTimer)
   window.clearTimeout(startupAnimationTimer)
+  window.clearTimeout(themeSwitchTimer)
+  document.documentElement.classList.remove('theme-transitioning')
   systemThemeQuery.removeEventListener('change', handleSystemThemeChange)
 })
 
@@ -1793,10 +1808,10 @@ function navigateDetail(direction) {
                 </button>
 
                 <div class="settings-category settings-piece" style="--settings-order: 2">
-                  <button type="button" class="theme-mode-row" :aria-label="`模式选择，当前${themeModeLabel}，点击切换`" @click="cycleThemeMode">
+                  <button type="button" class="theme-mode-row" :class="{ switching: themeSwitching }" :disabled="themeSwitching" :aria-label="`模式选择，当前${themeModeLabel}，点击切换`" @click="cycleThemeMode">
                     <i class="settings-icon settings-icon--theme"><MoonStar :size="18" /></i>
                     <span><strong>模式选择</strong><small>背景与手机显示模式同步</small></span>
-                    <b>{{ themeModeLabel }}</b>
+                    <Transition name="theme-label" mode="out-in"><b :key="themeMode">{{ themeModeLabel }}</b></Transition>
                   </button>
                   <button @click="openSettingsSection('home')"><i class="settings-icon settings-icon--home"><House :size="18" /></i><span><strong>首页编辑</strong><small>统计单位、展示数量</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('library')"><i class="settings-icon settings-icon--library"><SlidersHorizontal :size="18" /></i><span><strong>列表设置</strong><small>标签、排序与工具位置</small></span><ChevronRight :size="18" /></button>
