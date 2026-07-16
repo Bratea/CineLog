@@ -1,11 +1,15 @@
-<script setup>
+<script setup lang="ts">
 import { X } from 'lucide-vue-next'
 
-defineProps({
-  src: { type: String, required: true },
-  alt: { type: String, default: '图片预览' },
-  title: { type: String, default: '图片预览' },
-  fit: { type: String, default: 'contain' },
+withDefaults(defineProps<{
+  src: string
+  alt?: string
+  title?: string
+  fit?: 'contain' | 'cover' | 'fill' | 'none' | 'scale-down'
+}>(), {
+  alt: '图片预览',
+  title: '图片预览',
+  fit: 'contain',
 })
 defineEmits(['close'])
 </script>

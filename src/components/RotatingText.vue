@@ -1,25 +1,42 @@
-<script setup>
+<script setup lang="ts">
 import { AnimatePresence, Motion } from 'motion-v'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
-const props = defineProps({
-  texts: { type: Array, default: () => [] },
-  transition: { type: Object, default: () => ({ type: 'spring', damping: 28, stiffness: 360 }) },
-  initial: { type: Object, default: () => ({ y: '100%', opacity: 0 }) },
-  animate: { type: Object, default: () => ({ y: 0, opacity: 1 }) },
-  exit: { type: Object, default: () => ({ y: '-120%', opacity: 0 }) },
-  animatePresenceMode: { type: String, default: 'wait' },
-  animatePresenceInitial: { type: Boolean, default: false },
-  rotationInterval: { type: Number, default: 2000 },
-  staggerDuration: { type: Number, default: 0 },
-  staggerFrom: { type: [String, Number], default: 'first' },
-  loop: { type: Boolean, default: true },
-  auto: { type: Boolean, default: true },
-  splitBy: { type: String, default: 'characters' },
-  onNext: { type: Function, default: undefined },
-  mainClassName: { type: String, default: '' },
-  splitLevelClassName: { type: String, default: '' },
-  elementLevelClassName: { type: String, default: '' },
+const props = withDefaults(defineProps<{
+  texts?: string[]
+  transition?: Record<string, any>
+  initial?: Record<string, any>
+  animate?: Record<string, any>
+  exit?: Record<string, any>
+  animatePresenceMode?: 'wait' | 'popLayout' | 'sync'
+  animatePresenceInitial?: boolean
+  rotationInterval?: number
+  staggerDuration?: number
+  staggerFrom?: 'first' | 'last' | 'center' | 'random' | number
+  loop?: boolean
+  auto?: boolean
+  splitBy?: 'characters' | 'words' | 'lines'
+  onNext?: (index: number) => void
+  mainClassName?: string
+  splitLevelClassName?: string
+  elementLevelClassName?: string
+}>(), {
+  texts: () => [],
+  transition: () => ({ type: 'spring', damping: 28, stiffness: 360 }),
+  initial: () => ({ y: '100%', opacity: 0 }),
+  animate: () => ({ y: 0, opacity: 1 }),
+  exit: () => ({ y: '-120%', opacity: 0 }),
+  animatePresenceMode: 'wait',
+  animatePresenceInitial: false,
+  rotationInterval: 2000,
+  staggerDuration: 0,
+  staggerFrom: 'first',
+  loop: true,
+  auto: true,
+  splitBy: 'characters',
+  mainClassName: '',
+  splitLevelClassName: '',
+  elementLevelClassName: '',
 })
 
 const currentTextIndex = ref(0)

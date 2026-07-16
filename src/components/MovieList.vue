@@ -1,9 +1,10 @@
-<script setup>
+<script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue'
 import { ChevronRight, Star } from 'lucide-vue-next'
 import cinematicAnimeCollage from '../assets/cinematic-anime-collage.png'
+import type { Movie } from '../types'
 
-defineProps({ movies: { type: Array, required: true } })
+defineProps<{ movies: Movie[] }>()
 const emit = defineEmits(['open-detail', 'mark-watched', 'watch-warning'])
 const armedId = ref(null)
 const completingId = ref(null)

@@ -1,4 +1,4 @@
-<script setup>
+<script setup lang="ts">
 import { Check, Info, TriangleAlert, X } from 'lucide-vue-next'
 
 const props = defineProps({

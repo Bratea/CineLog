@@ -1,6 +1,18 @@
-:root { font-family: Inter, 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif; color: #151619; background: #efeff1; font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
+:root {
+  font-family: Inter, 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  color: #151619;
+  background: #efeff1;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  font-size: calc(100vw / 420);
+}
+@media (min-width: 521px) {
+  :root { font-size: 1px; }
+}
 * { box-sizing: border-box; }
-body { min-width: 320px; margin: 0; }
+html, body, #app { width: 100%; min-height: 100%; }
+body { min-width: 0; margin: 0; overflow-x: hidden; }
 button { font: inherit; cursor: pointer; }
 .app-shell { display: grid; min-height: 100svh; place-items: center; padding: 28px; background: radial-gradient(circle at 50% 8%, #fff 0 20%, #e9e9eb 76%); }
 .phone { position: relative; width: min(100%, 420px); height: min(844px, calc(100svh - 24px)); min-height: 720px; overflow: hidden; padding: 44px 20px 108px; background: #fff; border: 1px solid rgba(12,13,15,.06); border-radius: 38px; box-shadow: 0 28px 70px rgba(17,17,19,.15), 0 3px 10px rgba(17,17,19,.06); isolation: isolate; }
@@ -303,4 +315,13 @@ h1 { font-size: 28px; letter-spacing: -.07em; line-height: 1.05; }
   .surface-view { padding-top:30px; }.library-surface { padding-top:31px; }.search-box { margin-top:15px; }.result-heading { margin-top:14px; }
 }
 @media (max-width: 520px) { .app-shell { display: block; padding: 0; background: #fff; } .phone { width: 100%; height: 100svh; min-height: 680px; border: 0; border-radius: 0; box-shadow: none; } }
+@media (max-width: 520px) {
+  .phone {
+    padding-top: max(44px, calc(env(safe-area-inset-top) + 12px));
+    padding-bottom: max(108px, calc(env(safe-area-inset-bottom) + 86px));
+  }
+  .bottom-nav, .library-nav {
+    bottom: max(22px, env(safe-area-inset-bottom));
+  }
+}
 @media (prefers-reduced-motion: reduce) { .media-menu-enter-active,.media-menu-leave-active,.date-calendar-enter-active,.date-calendar-leave-active,.tmdb-media-select__trigger,.tmdb-media-select__trigger svg,.tmdb-media-select__menu button,.tmdb-watch-date,.tmdb-watch-date svg,.tmdb-date-calendar button { transition:none; } }

@@ -1,6 +1,7 @@
-<script setup>
+<script setup lang="ts">
 import { LoaderCircle, X } from 'lucide-vue-next'
-defineProps({ person: { type: Object, required: true }, imageSrc: { type: String, default: '' } })
+import type { PersonCredit } from '../types'
+withDefaults(defineProps<{ person: PersonCredit; imageSrc?: string }>(), { imageSrc: '' })
 defineEmits(['close'])
 </script>
 

@@ -1,4 +1,4 @@
-<script setup>
+<script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import {
   ArrowLeft,
@@ -436,7 +436,7 @@ onBeforeUnmount(() => {
 
         <section v-if="movie.posters?.length" class="detail-panel posters-panel detail-module reveal-section" style="order:74">
           <div class="section-heading"><h2>海报画廊</h2><small>点击放大</small></div>
-          <div class="poster-rail"><button v-for="(poster, index) in movie.posters" :key="poster.file_path" :aria-label="`放大查看第 ${index + 1} 张电影海报`" @click="openImage(imageUrl(poster.file_path), `${movie.title} · 海报 ${String(index + 1).padStart(2, '0')}`)"><img :src="imageUrl(poster.file_path, 'w342')" :alt="`${movie.title}海报${index + 1}`" /><span>{{ poster.language?.toUpperCase() || 'ART' }}</span></button></div>
+          <div class="poster-rail"><button v-for="(poster, index) in movie.posters" :key="poster.file_path" :aria-label="`放大查看第 ${Number(index) + 1} 张电影海报`" @click="openImage(imageUrl(poster.file_path), `${movie.title} · 海报 ${String(Number(index) + 1).padStart(2, '0')}`)"><img :src="imageUrl(poster.file_path, 'w342')" :alt="`${movie.title}海报${Number(index) + 1}`" /><span>{{ poster.language?.toUpperCase() || 'ART' }}</span></button></div>
         </section>
 
         <section v-if="movie.collection?.parts?.length" class="detail-panel collection-panel detail-module reveal-section" style="order:75">

@@ -56,6 +56,6 @@ npm.cmd run app:open
 ## 主要文件
 
 - `capacitor.config.json`：App ID、名称、网页目录和 SQLite 配置。
-- `src/services/localDatabase.js`：SQLite/IndexedDB 统一数据访问层。
+- `src/services/localDatabase.ts`：SQLite/IndexedDB 统一数据访问层。
 - `android/`：Capacitor 生成的 Android 原生工程。
 - `scripts/build-android.ps1`：Windows APK 构建脚本。

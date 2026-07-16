@@ -1,4 +1,4 @@
-<script setup>
+<script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, ExternalLink, FolderTree, GripVertical, HardDrive, House, LayoutPanelTop, Pencil, RefreshCw, Search, SlidersHorizontal, Star, Upload, X } from 'lucide-vue-next'
 import MovieCarousel from './components/MovieCarousel.vue'
@@ -10,7 +10,6 @@ import CategorySettings from './components/CategorySettings.vue'
 import DetailLayoutSettings from './components/DetailLayoutSettings.vue'
 import DatabaseSettings from './components/DatabaseSettings.vue'
 import RotatingText from './components/RotatingText.vue'
-import { movies } from './data/movies'
 import { getLocalValue, setLocalValue } from './services/localDatabase'
 import cinematicAnimeCollage from './assets/cinematic-anime-collage.png'
 import pixelPlus from './assets/pixel-plus.webp'
@@ -18,20 +17,22 @@ import pixelHome from './assets/pixel-home.webp'
 import pixelMovieList from './assets/pixel-movie-list.webp'
 import pixelCards from './assets/pixel-cards.webp'
 import pixelRows from './assets/pixel-rows.webp'
+import type { Movie } from './types'
 
 const currentPage = ref('home')
-const sampleRecordDates = ['2026-07-12', '2026-07-13', '2026-07-15', '2026-07-14']
 const MOVIE_RECORDS_STORAGE_KEY = 'movie-records'
-const defaultMovieRecords = movies.map((movie, index) => ({
-  ...movie,
-  favourite: index === 0,
-  recordDate: movie.recordDate || sampleRecordDates[index] || '2026-07-15',
-  releaseDate: movie.releaseDate || sampleRecordDates[index] || '',
-}))
+const LEGACY_SAMPLE_POSTERS = new Set(['pop', 'demon', 'crayon', 'coco'])
 
-const movieRecords = ref(defaultMovieRecords)
+const movieRecords = ref([])
 const movieRecordsReady = ref(false)
 let persistMovieRecordsTimer
+
+function isLegacySampleRecord(movie) {
+  return Number.isInteger(movie?.id)
+    && movie.id >= 1
+    && movie.id <= 4
+    && LEGACY_SAMPLE_POSTERS.has(movie.poster)
+}
 
 async function hydrateMovieRecords() {
   try {
@@ -43,7 +44,14 @@ async function hydrateMovieRecords() {
       if (Array.isArray(legacy)) saved = legacy
     }
 
-    if (Array.isArray(saved)) movieRecords.value = saved
+    if (Array.isArray(saved)) {
+      const records = saved.filter((movie) => !isLegacySampleRecord(movie))
+      movieRecords.value = records
+      if (records.length !== saved.length) {
+        await setLocalValue(MOVIE_RECORDS_STORAGE_KEY, records)
+        localStorage.removeItem('movie-records-v1')
+      }
+    }
   } catch (error) {
     console.error('读取本地电影数据库失败：', error)
   } finally {
@@ -167,7 +175,7 @@ function loadDetailLayout() {
 
 const detailLayout = ref(loadDetailLayout())
 
-const incomingMovieGenres = [...new Set(movies.flatMap((movie) => movie.meta.split('·').map((genre) => genre.trim())))].filter(Boolean)
+const incomingMovieGenres = []
 const defaultCategorySettings = [
   { id: 'movie', label: '电影', children: incomingMovieGenres.map((label) => ({ id: `movie-${label}`, label, source: 'data' })) },
   { id: 'tv', label: '电视剧', children: ['剧情', '喜剧', '爱情', '悬疑', '科幻', '动作'].map((label) => ({ id: `tv-${label}`, label, source: 'default' })) },
@@ -367,7 +375,8 @@ function moveLibraryTagHold(event) {
   const draggedGenre = libraryTagDragId.value
   if (!draggedGenre) return
   event.preventDefault()
-  const targetGenre = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('[data-library-tag]')?.dataset.libraryTag
+  const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('[data-library-tag]') as HTMLElement | null
+  const targetGenre = target?.dataset.libraryTag
   if (!targetGenre || targetGenre === draggedGenre) return
   const categories = categorySettings.value.map((category) => ({
     ...category,
@@ -429,7 +438,7 @@ function resetLibraryDate() {
   expandedLibraryId.value = null
 }
 
-function openDetailFromPoster(movie, source) {
+function openDetailFromPoster(movie: Movie, source: Element | null) {
   const poster = source?.querySelector?.('.library-poster, .movie-list-poster')
   const posterRect = poster?.getBoundingClientRect()
   const phoneRect = phoneShell.value?.getBoundingClientRect()
@@ -544,7 +553,7 @@ function switchTmdbNetworkMode(mode) {
 function tmdbRequest(url, params = {}) {
   const credential = tmdbToken.value.trim()
   const search = new URLSearchParams(params)
-  const headers = { accept: 'application/json' }
+  const headers: Record<string, string> = { accept: 'application/json' }
   if (credential.startsWith('eyJ')) headers.Authorization = `Bearer ${credential}`
   else search.set('api_key', credential)
   const separator = url.includes('?') ? '&' : '?'
@@ -573,7 +582,7 @@ function handleAvatarUpload(event) {
       avatarUrl.value = canvas.toDataURL('image/jpeg', .86)
       avatarUploadMessage.value = `${file.name} · 已保存到当前浏览器`
     }
-    image.src = reader.result
+    if (typeof reader.result === 'string') image.src = reader.result
   }
   reader.readAsDataURL(file)
 }
@@ -1200,7 +1209,7 @@ function navigateDetail(direction) {
                 <div v-if="expandedLibraryId === movie.id" class="library-preview">
                   <div class="library-preview__facts"><span>{{ movie.originalTitle }}</span><span>{{ movie.watched ? '已观看' : '未观看' }}</span></div>
                   <p>{{ movie.overview || movie.feeling || '暂无剧情简介。' }}</p>
-                  <div class="library-preview__footer"><button class="library-preview__watch" :class="{ watched: movie.watched }" :aria-label="`将${movie.title}切换为${movie.watched ? '未观看' : '已观看'}`" @click.stop="toggleLibraryWatchStatus(movie)"><span></span>{{ movie.watched ? '已观看' : '未观看' }}</button><button class="library-preview__visit" :aria-label="`访问${movie.title}详情`" @click="openDetailFromPoster(movie, $event.currentTarget.closest('.library-row'))">访问 <ArrowUpRight :size="14" /></button></div>
+                  <div class="library-preview__footer"><button class="library-preview__watch" :class="{ watched: movie.watched }" :aria-label="`将${movie.title}切换为${movie.watched ? '未观看' : '已观看'}`" @click.stop="toggleLibraryWatchStatus(movie)"><span></span>{{ movie.watched ? '已观看' : '未观看' }}</button><button class="library-preview__visit" :aria-label="`访问${movie.title}详情`" @click="openDetailFromPoster(movie, ($event.currentTarget as HTMLElement).closest('.library-row'))">访问 <ArrowUpRight :size="14" /></button></div>
                 </div>
               </Transition>
             </article>

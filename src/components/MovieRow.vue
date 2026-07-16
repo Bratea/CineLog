@@ -1,9 +1,8 @@
-<script setup>
+<script setup lang="ts">
 import { Check, Circle, Ellipsis, Star } from 'lucide-vue-next'
+import type { Movie } from '../types'
 
-defineProps({
-  movie: { type: Object, required: true },
-})
+defineProps<{ movie: Movie }>()
 </script>
 
 <template>

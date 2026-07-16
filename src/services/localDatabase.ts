@@ -1,12 +1,14 @@
 import { Capacitor } from '@capacitor/core'
 import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite'
+import type { SQLiteDBConnection } from '@capacitor-community/sqlite'
+import type { DatabaseInfo } from '../types'
 
 const DATABASE_NAME = 'cinelog'
 const DATABASE_VERSION = 1
 const STORE_NAME = 'app-state'
 
-let webDatabasePromise
-let nativeDatabasePromise
+let webDatabasePromise: Promise<IDBDatabase> | undefined
+let nativeDatabasePromise: Promise<SQLiteDBConnection> | undefined
 
 function openWebDatabase() {
   if (webDatabasePromise) return webDatabasePromise
@@ -29,7 +31,10 @@ function openWebDatabase() {
   return webDatabasePromise
 }
 
-async function runWebTransaction(mode, operation) {
+async function runWebTransaction<T>(
+  mode: IDBTransactionMode,
+  operation: (store: IDBObjectStore) => IDBRequest<T>,
+): Promise<T> {
   const database = await openWebDatabase()
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(STORE_NAME, mode)
@@ -72,18 +77,18 @@ export function isNativeDatabase() {
   return Capacitor.isNativePlatform()
 }
 
-export async function getLocalValue(key) {
+export async function getLocalValue<T = unknown>(key: string): Promise<T | undefined> {
   if (!isNativeDatabase()) {
-    return runWebTransaction('readonly', (store) => store.get(key))
+    return runWebTransaction<T | undefined>('readonly', (store) => store.get(key))
   }
 
   const database = await openNativeDatabase()
   const result = await database.query('SELECT value FROM app_state WHERE key = ? LIMIT 1', [key])
   const rawValue = result.values?.[0]?.value
-  if (typeof rawValue === 'string') return JSON.parse(rawValue)
+  if (typeof rawValue === 'string') return JSON.parse(rawValue) as T
 
   // First native launch: move the previous WebView IndexedDB value into SQLite.
-  const legacyValue = await runWebTransaction('readonly', (store) => store.get(key))
+  const legacyValue = await runWebTransaction<T | undefined>('readonly', (store) => store.get(key))
   if (legacyValue !== undefined) {
     await database.run(
       'INSERT OR REPLACE INTO app_state (key, value, updated_at) VALUES (?, ?, ?)',
@@ -93,9 +98,10 @@ export async function getLocalValue(key) {
   return legacyValue
 }
 
-export async function setLocalValue(key, value) {
+export async function setLocalValue<T>(key: string, value: T): Promise<void> {
   if (!isNativeDatabase()) {
-    return runWebTransaction('readwrite', (store) => store.put(value, key))
+    await runWebTransaction('readwrite', (store) => store.put(value, key))
+    return
   }
 
   const database = await openNativeDatabase()
@@ -106,7 +112,7 @@ export async function setLocalValue(key, value) {
   )
 }
 
-export async function getDatabaseInfo() {
+export async function getDatabaseInfo(): Promise<DatabaseInfo> {
   if (!isNativeDatabase()) {
     const database = await openWebDatabase()
     const stateEntries = await runWebTransaction('readonly', (store) => store.count())

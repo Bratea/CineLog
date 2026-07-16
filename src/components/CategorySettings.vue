@@ -1,10 +1,9 @@
-<script setup>
+<script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { ChevronLeft, ChevronRight, GripVertical, Plus, X } from 'lucide-vue-next'
+import type { Category } from '../types'
 
-const props = defineProps({
-  categories: { type: Array, required: true },
-})
+const props = defineProps<{ categories: Category[] }>()
 
 const emit = defineEmits(['update:categories'])
 
@@ -113,7 +112,7 @@ function moveHold(event) {
   const drag = dragState.value
   if (!drag) return
   event.preventDefault()
-  const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.(`[data-drag-type="${drag.type}"]`)
+  const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.(`[data-drag-type="${drag.type}"]`) as HTMLElement | null
   const targetId = target?.dataset.dragId
   if (!targetId || targetId === drag.id) return
 

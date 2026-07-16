@@ -1,13 +1,12 @@
-<script setup>
+<script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { Check, ChevronRight, ChevronUp, Star } from 'lucide-vue-next'
 import cinematicAnimeCollage from '../assets/cinematic-anime-collage.png'
+import { designPx, designRem } from '../utils/responsive'
+import type { Movie } from '../types'
 
-const props = defineProps({
-  movies: { type: Array, required: true },
-  active: { type: Boolean, default: true },
-})
+const props = withDefaults(defineProps<{ movies: Movie[]; active?: boolean }>(), { active: true })
 const emit = defineEmits(['mark-watched', 'open-detail'])
 
 const activeIndex = ref(0)
@@ -164,12 +163,12 @@ function cardStyle(offset) {
     '--x': `${value * 58}%`,
     '--rotate': `${value * 5}deg`,
     '--tilt': `${value * -6}deg`,
-    '--lift': isActive ? `${progress * -50}px` : '12px',
+    '--lift': isActive ? designRem(progress * -50) : designRem(12),
     '--scale': isActive ? 1 + progress * .075 : 0.9,
     '--open-tilt': isActive ? `${progress * -1.6}deg` : '0deg',
     '--open-progress': progress,
     '--opacity': isActive ? 1 : 0.76,
-    '--blur': isActive ? '0px' : '.35px',
+    '--blur': isActive ? designRem(0) : designRem(.35),
     '--z': isActive ? 3 : offset < 0 ? 1 : 2,
   }
 }
@@ -187,7 +186,7 @@ function resetSwipe() {
 function watchSwipeDown(event) {
   if (swipeSettled.value) return
   swipeStartX.value = event.clientX
-  swipeMax.value = Math.max(0, event.currentTarget.clientWidth - 44)
+  swipeMax.value = Math.max(0, event.currentTarget.clientWidth - designPx(44))
   isSwiping.value = true
   event.currentTarget.setPointerCapture?.(event.pointerId)
 }

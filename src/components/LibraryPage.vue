@@ -1,13 +1,10 @@
-<script setup>
+<script setup lang="ts">
 import { computed, ref } from 'vue'
 import { Check, ChevronRight, Circle, Search, Star } from 'lucide-vue-next'
 import cinematicAnimeCollage from '../assets/cinematic-anime-collage.png'
+import type { Movie } from '../types'
 
-const props = defineProps({
-  movies: { type: Array, required: true },
-  homeIcon: { type: String, required: true },
-  listIcon: { type: String, required: true },
-})
+const props = defineProps<{ movies: Movie[]; homeIcon: string; listIcon: string }>()
 
 const emit = defineEmits(['home', 'open-detail'])
 const query = ref('')

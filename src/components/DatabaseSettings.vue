@@ -1,4 +1,4 @@
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { CheckCircle2, CircleAlert, Database, HardDrive, RefreshCw, ShieldCheck, Table2 } from 'lucide-vue-next'
 import { getDatabaseInfo } from '../services/localDatabase'

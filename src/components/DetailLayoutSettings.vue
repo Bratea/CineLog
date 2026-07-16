@@ -1,10 +1,9 @@
-<script setup>
+<script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue'
 import { ChevronDown, ChevronUp, GripVertical, RotateCcw } from 'lucide-vue-next'
+import type { DetailLayoutModule } from '../types'
 
-const props = defineProps({
-  modules: { type: Array, required: true },
-})
+const props = defineProps<{ modules: DetailLayoutModule[] }>()
 
 const emit = defineEmits(['update:modules', 'reset'])
 const dragId = ref('')
@@ -46,7 +45,7 @@ function cancelPendingHold(event) {
 function moveHold(event) {
   if (!dragId.value) return
   event.preventDefault()
-  const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('[data-layout-id]')
+  const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('[data-layout-id]') as HTMLElement | null
   const targetId = target?.dataset.layoutId
   if (!targetId || targetId === dragId.value) return
   const modules = cloneModules()
