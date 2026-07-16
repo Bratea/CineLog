@@ -90,10 +90,11 @@ onBeforeUnmount(() => {
       <i v-for="(item, index) in modules" :key="item.id" :class="`is-${item.tone}`" :title="item.label"><span>{{ index + 1 }}</span></i>
     </div>
 
-    <div class="detail-layout-list">
+    <TransitionGroup name="detail-order" tag="div" class="detail-layout-list">
       <article
         v-for="(item, index) in modules"
         :key="item.id"
+        :style="{ '--move-delay': `${index * 32}ms` }"
         :data-layout-id="item.id"
         :class="{ dragging: dragId === item.id }"
         @pointerdown="startHold($event, item.id)"
@@ -108,7 +109,7 @@ onBeforeUnmount(() => {
           <button type="button" :disabled="index === modules.length - 1" :aria-label="`${item.label}下移`" @pointerdown.stop @click="moveModule(item.id, 1)"><ChevronDown :size="14" /></button>
         </nav>
       </article>
-    </div>
+    </TransitionGroup>
 
     <p class="detail-layout-hint"><GripVertical :size="14" />长按任意模块后拖动，也可以使用右侧按钮精确调整。</p>
   </section>

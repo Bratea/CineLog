@@ -25,12 +25,16 @@ import type { Movie } from './types'
 const currentPage = ref('home')
 const isNativeApp = Capacitor.isNativePlatform()
 const STARTUP_ANIMATION_ENABLED_KEY = 'cinelog-startup-animation-enabled'
+const MOTION_INTENSITY_KEY = 'cinelog-motion-intensity'
 const THEME_MODE_KEY = 'cinelog-theme-mode'
 const MOVIE_RECORDS_STORAGE_KEY = 'movie-records'
 const LEGACY_SAMPLE_POSTERS = new Set(['pop', 'demon', 'crayon', 'coco'])
 type ThemeMode = 'system' | 'light' | 'dark'
+type MotionIntensity = 'high' | 'medium' | 'low'
 const storedThemeMode = localStorage.getItem(THEME_MODE_KEY)
+const storedMotionIntensity = localStorage.getItem(MOTION_INTENSITY_KEY)
 const themeMode = ref<ThemeMode>(storedThemeMode === 'light' || storedThemeMode === 'dark' ? storedThemeMode : 'system')
+const motionIntensity = ref<MotionIntensity>(storedMotionIntensity === 'medium' || storedMotionIntensity === 'low' ? storedMotionIntensity : 'high')
 const systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)')
 const systemDark = ref(systemThemeQuery.matches)
 const resolvedTheme = computed(() => themeMode.value === 'system' ? (systemDark.value ? 'dark' : 'light') : themeMode.value)
@@ -117,6 +121,7 @@ async function hydrateMovieRecords() {
     console.error('读取本地电影数据库失败：', error)
   } finally {
     movieRecordsReady.value = true
+    syncMovieCategoriesFromRecords(movieRecords.value)
   }
 }
 
@@ -311,9 +316,34 @@ function loadDetailLayout() {
 
 const detailLayout = ref(loadDetailLayout())
 
-const incomingMovieGenres = []
+const movieTestGenres = ['剧情', '喜剧', '动作', '爱情', '悬疑', '科幻']
+const tmdbMovieGenreLabels = {
+  12: '冒险',
+  14: '奇幻',
+  16: '动画',
+  18: '剧情',
+  27: '恐怖',
+  28: '动作',
+  35: '喜剧',
+  36: '历史',
+  37: '西部',
+  53: '惊悚',
+  80: '犯罪',
+  99: '纪录片',
+  878: '科幻',
+  9648: '悬疑',
+  10402: '音乐',
+  10749: '爱情',
+  10751: '家庭',
+  10752: '战争',
+}
+
+function makeMovieTestGenres() {
+  return movieTestGenres.map((label, index) => ({ id: `movie-test-${index}`, label, source: 'default' }))
+}
+
 const defaultCategorySettings = [
-  { id: 'movie', label: '电影', children: incomingMovieGenres.map((label) => ({ id: `movie-${label}`, label, source: 'data' })) },
+  { id: 'movie', label: '电影', children: makeMovieTestGenres() },
   { id: 'tv', label: '电视剧', children: ['剧情', '喜剧', '爱情', '悬疑', '科幻', '动作'].map((label) => ({ id: `tv-${label}`, label, source: 'default' })) },
   { id: 'anime', label: '动漫', children: ['热血', '奇幻', '冒险', '治愈', '喜剧', '科幻'].map((label) => ({ id: `anime-${label}`, label, source: 'default' })) },
   { id: 'novel', label: '小说', children: ['科幻', '悬疑', '奇幻', '言情', '历史', '文学'].map((label) => ({ id: `novel-${label}`, label, source: 'default' })) },
@@ -323,16 +353,45 @@ function loadCategorySettings() {
   try {
     const saved = JSON.parse(localStorage.getItem('movie-category-settings'))
     if (!Array.isArray(saved) || !saved.length) return defaultCategorySettings
-    const savedMovie = saved.find((category) => category.id === 'movie')
-    const savedMovieLabels = new Set(savedMovie?.children?.map((child) => child.label) || [])
-    const missingIncoming = incomingMovieGenres.filter((label) => !savedMovieLabels.has(label)).map((label) => ({ id: `movie-${label}`, label, source: 'data' }))
-    return saved.map((category) => category.id === 'movie' ? { ...category, children: [...missingIncoming, ...(category.children || [])] } : category)
+    return saved.map((category) => category.id === 'movie' && !category.children?.length
+      ? { ...category, children: makeMovieTestGenres() }
+      : category)
   } catch {
     return defaultCategorySettings
   }
 }
 
 const categorySettings = ref(loadCategorySettings())
+
+function movieGenreLabels(records = movieRecords.value) {
+  const labels = new Set()
+  records.forEach((movie) => {
+    movie.genres?.forEach((genre) => {
+      const label = typeof genre === 'string' ? genre : genre?.name
+      if (label?.trim()) labels.add(label.trim())
+    })
+    movie.genreIds?.forEach((id) => {
+      const label = tmdbMovieGenreLabels[id]
+      if (label) labels.add(label)
+    })
+  })
+  return [...labels]
+}
+
+function syncMovieCategoriesFromRecords(records = movieRecords.value) {
+  const labels = movieGenreLabels(records)
+  if (!labels.length) return
+  const movieCategory = categorySettings.value.find((category) => category.id === 'movie')
+  if (!movieCategory) return
+  const onlyTestData = !movieCategory.children.length || movieCategory.children.every((child) => child.id.startsWith('movie-test-'))
+  if (!onlyTestData) return
+  categorySettings.value = categorySettings.value.map((category) => category.id === 'movie'
+    ? {
+        ...category,
+        children: labels.map((label, index) => ({ id: `movie-data-${index}-${label}`, label, source: 'data' })),
+      }
+    : category)
+}
 
 let watchConfirmTimer
 let recordNoticeTimer
@@ -365,6 +424,7 @@ const periodLabel = computed(() => ({ year: `${selectedYear.value} 年`, month: 
 const watchedSubtitle = computed(() => `按${({ year: '年', month: '月', week: '周', day: '日' })[statPeriod.value]}整理 · 共 ${filteredMovies.value.length} 部`)
 const displayedMovies = computed(() => filteredMovies.value.slice(0, homeDisplayLimit.value))
 const surfaceTransitionName = computed(() => transitionDirection.value === 'forward' ? 'surface-forward' : 'surface-back')
+const surfaceTransitionDuration = computed(() => ({ high: 720, medium: 480, low: 260 })[motionIntensity.value])
 const settingsTransitionName = computed(() => settingsDirection.value === 'forward' ? 'settings-forward' : 'settings-back')
 const surfacePage = computed(() => currentPage.value === 'detail' ? detailOrigin.value : currentPage.value)
 const libraryYears = computed(() => [...new Set(movieRecords.value.map((movie) => movie.year))].sort().reverse())
@@ -438,6 +498,7 @@ watch(selectedLibraryDay, (value) => localStorage.setItem('movie-library-day', S
 watch(startupAnimationEnabled, (value) => {
   localStorage.setItem(STARTUP_ANIMATION_ENABLED_KEY, String(value))
 })
+watch(motionIntensity, (value) => localStorage.setItem(MOTION_INTENSITY_KEY, value))
 watch(themeMode, (value) => localStorage.setItem(THEME_MODE_KEY, value))
 watch(resolvedTheme, (value) => {
   document.documentElement.dataset.theme = value
@@ -446,6 +507,7 @@ watch(resolvedTheme, (value) => {
 systemThemeQuery.addEventListener('change', handleSystemThemeChange)
 watch(movieRecords, (value) => {
   if (!movieRecordsReady.value) return
+  syncMovieCategoriesFromRecords(value)
   window.clearTimeout(persistMovieRecordsTimer)
   const snapshot = JSON.parse(JSON.stringify(value))
   persistMovieRecordsTimer = window.setTimeout(() => {
@@ -1500,7 +1562,7 @@ function navigateDetail(direction) {
     <section
       ref="phoneShell"
       class="phone"
-      :class="{ 'phone--detail': currentPage === 'detail' }"
+      :class="[{ 'phone--detail': currentPage === 'detail' }, `motion-${motionIntensity}`]"
       :aria-label="currentPage === 'home' ? `${username}的观影记录首页` : currentPage === 'library' ? '电影列表页面' : currentPage === 'detail' ? '电影详情页面' : '个人设置页面'"
       @pointerdown.capture="edgeBackPointerDown"
       @pointermove.capture="edgeBackPointerMove"
@@ -1510,7 +1572,7 @@ function navigateDetail(direction) {
       <div class="ambient-orb ambient-orb--one" aria-hidden="true"></div>
       <div class="ambient-orb ambient-orb--two" aria-hidden="true"></div>
 
-      <Transition :name="surfaceTransitionName" :duration="720">
+      <Transition :name="surfaceTransitionName" :duration="surfaceTransitionDuration">
         <section v-if="surfacePage === 'home'" key="home" class="surface-view home-surface">
         <Transition name="record-notice">
           <AppNotice v-if="homeNotice" :key="`${homeNotice.title}-${homeNotice.message}`" :title="homeNotice.title" :message="homeNotice.message" tone="warning" placement="home" :duration="2400" />
@@ -1783,7 +1845,7 @@ function navigateDetail(direction) {
 
       <div v-if="posterFlight" class="poster-flight" :class="`poster-flight--${posterFlight.movie.poster}`" :style="{ '--flight-left': `${posterFlight.left}px`, '--flight-top': `${posterFlight.top}px`, '--flight-width': `${posterFlight.width}px`, '--flight-height': `${posterFlight.height}px`, ...libraryPosterStyle(posterFlight.movie) }" aria-hidden="true"></div>
 
-      <MovieDetail ref="movieDetail" v-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" :entry-mode="detailEntry" :layout-order="detailLayout.map((item) => item.id)" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" @update-record="updateMovieRecord" @request-person="requestPersonDetails" />
+      <MovieDetail ref="movieDetail" v-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" :entry-mode="detailEntry" :motion-intensity="motionIntensity" :layout-order="detailLayout.map((item) => item.id)" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" @update-record="updateMovieRecord" @request-person="requestPersonDetails" />
 
       <Transition name="settings-shell">
         <section v-if="currentPage === 'settings'" class="personal-settings" @click.capture="animateSettingsChoice">
@@ -1793,7 +1855,7 @@ function navigateDetail(direction) {
                 <button :aria-label="settingsSection === 'hub' ? '返回首页' : '返回设置'" @click="backFromSettings"><ChevronLeft :size="22" /></button>
                 <div>
                   <h1>{{ settingsSection === 'hub' ? '设置' : settingsSection === 'profile' ? '个人信息' : settingsSection === 'home' ? '首页编辑' : settingsSection === 'library' ? '列表设置' : settingsSection === 'categories' ? '分类设置' : settingsSection === 'detail-layout' ? '电影详情布局' : settingsSection === 'animation' ? '动画设置' : settingsSection === 'database' ? '数据库设置' : 'TMDB 设置' }}</h1>
-                  <p>{{ settingsSection === 'hub' ? '把常用设置收进清晰的分类里。' : settingsSection === 'profile' ? '头像和名称会显示在首页。' : settingsSection === 'home' ? '控制首页的统计与展示数量。' : settingsSection === 'library' ? '统一管理标签、排序与工具位置。' : settingsSection === 'categories' ? '管理两层分类、自定义内容与显示顺序。' : settingsSection === 'detail-layout' ? '调整详情模块的优先展示顺序。' : settingsSection === 'animation' ? '控制 App 冷启动时是否播放品牌动画。' : settingsSection === 'database' ? '查看当前设备的本地数据库状态。' : '配置数据接口与国内网络访问。' }}</p>
+                  <p>{{ settingsSection === 'hub' ? '把常用设置收进清晰的分类里。' : settingsSection === 'profile' ? '头像和名称会显示在首页。' : settingsSection === 'home' ? '控制首页的统计与展示数量。' : settingsSection === 'library' ? '统一管理标签、排序与工具位置。' : settingsSection === 'categories' ? '管理两层分类、自定义内容与显示顺序。' : settingsSection === 'detail-layout' ? '调整详情模块的优先展示顺序。' : settingsSection === 'animation' ? '统一控制所有页面的动态幅度与启动动画。' : settingsSection === 'database' ? '查看当前设备的本地数据库状态。' : '配置数据接口与国内网络访问。' }}</p>
                 </div>
               </header>
 
@@ -1817,7 +1879,7 @@ function navigateDetail(direction) {
                   <button @click="openSettingsSection('library')"><i class="settings-icon settings-icon--library"><SlidersHorizontal :size="18" /></i><span><strong>列表设置</strong><small>标签、排序与工具位置</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('categories')"><i class="settings-icon settings-icon--categories"><FolderTree :size="18" /></i><span><strong>分类设置</strong><small>两层分类、自定义与拖动排序</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('detail-layout')"><i class="settings-icon settings-icon--detail"><LayoutPanelTop :size="18" /></i><span><strong>电影详情布局</strong><small>7 个模块的展示优先级</small></span><ChevronRight :size="18" /></button>
-                  <button @click="openSettingsSection('animation')"><i class="settings-icon settings-icon--animation"><Play :size="18" /></i><span><strong>动画设置</strong><small>启动动画显示与即时预览</small></span><ChevronRight :size="18" /></button>
+                  <button @click="openSettingsSection('animation')"><i class="settings-icon settings-icon--animation"><Play :size="18" /></i><span><strong>动画设置</strong><small>页面强度、启动动画与预览</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('database')"><i class="settings-icon settings-icon--database"><HardDrive :size="18" /></i><span><strong>数据库设置</strong><small>本地引擎、连接状态与数据概况</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('tmdb')"><i class="settings-icon settings-icon--tmdb"><Database :size="18" /></i><span><strong>TMDB 设置</strong><small>API、图片与国内网络</small></span><ChevronRight :size="18" /></button>
                 </div>
@@ -1851,7 +1913,7 @@ function navigateDetail(direction) {
 
               <template v-else-if="settingsSection === 'home'">
                 <div class="settings-group settings-piece" style="--settings-order: 1"><label>默认统计单位</label><div class="period-options" role="group" aria-label="时间单位"><button v-for="option in [{ value: 'year', label: '年' }, { value: 'month', label: '月' }, { value: 'week', label: '周' }, { value: 'day', label: '日' }]" :key="option.value" :class="{ selected: statPeriod === option.value }" @click="statPeriod = option.value">{{ option.label }}</button></div></div>
-                <div class="settings-group settings-piece" style="--settings-order: 2"><label>首页最多展示</label><div class="home-limit-control" :class="{ editing: homeCustomLimitOpen }"><div class="period-options home-limit-options" role="group" aria-label="首页电影展示数量"><button v-for="limit in [5, 10, 15]" :key="limit" :class="{ selected: homeDisplayLimit === limit && !homeCustomLimitOpen }" @click="homeDisplayLimit = limit; homeCustomLimitOpen = false">{{ limit }} 部</button><button v-if="!homeCustomLimitOpen" :class="{ selected: ![5, 10, 15].includes(homeDisplayLimit) }" @click="openHomeCustomLimit">自定义</button></div><Transition name="home-custom-limit"><div v-if="homeCustomLimitOpen" class="home-custom-limit-editor"><label><input v-model="homeCustomLimitInput" type="number" inputmode="numeric" min="1" max="99" aria-label="自定义首页展示数量" /><span>部</span></label><div><button type="button" @click="cancelHomeCustomLimit">取消</button><button type="button" @click="saveHomeCustomLimit"><Check :size="13" />保存</button></div></div></Transition></div><small>卡片和列表共同使用这个展示数量；默认 10 部，也可快速选择 5 部或 15 部。</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 2"><label>首页最多展示</label><div class="home-limit-control" :class="{ editing: homeCustomLimitOpen }"><div class="period-options home-limit-options" role="group" aria-label="首页电影展示数量"><button v-for="limit in [5, 10]" :key="limit" :class="{ selected: homeDisplayLimit === limit && !homeCustomLimitOpen }" @click="homeDisplayLimit = limit; homeCustomLimitOpen = false">{{ limit }} 部</button><button v-if="!homeCustomLimitOpen" :class="{ selected: ![5, 10].includes(homeDisplayLimit) }" @click="openHomeCustomLimit">自定义</button></div><Transition name="home-custom-limit"><div v-if="homeCustomLimitOpen" class="home-custom-limit-editor"><label><input v-model="homeCustomLimitInput" type="number" inputmode="numeric" min="1" max="99" aria-label="自定义首页展示数量" /><span>部</span></label><div><button type="button" @click="cancelHomeCustomLimit">取消</button><button type="button" @click="saveHomeCustomLimit"><Check :size="13" />保存</button></div></div></Transition></div><small>卡片和列表共同使用这个展示数量；默认 10 部，也可快速选择 5 部。</small></div>
               </template>
 
               <template v-else-if="settingsSection === 'library'">
@@ -1875,7 +1937,29 @@ function navigateDetail(direction) {
               </template>
 
               <template v-else-if="settingsSection === 'animation'">
-                <section class="startup-animation-settings settings-piece" style="--settings-order: 1">
+                <section class="motion-intensity-settings settings-piece" style="--settings-order: 1">
+                  <header>
+                    <div><strong>动画强度</strong><span>首页、列表、详情、设置和添加页面统一生效</span></div>
+                    <b>{{ motionIntensity === 'high' ? '高' : motionIntensity === 'medium' ? '中' : '低' }}</b>
+                  </header>
+                  <div class="motion-intensity-options" role="group" aria-label="动画强度">
+                    <button type="button" :class="{ selected: motionIntensity === 'high' }" @click="motionIntensity = 'high'">
+                      <i class="motion-demo motion-demo--high"><span></span><span></span><span></span></i>
+                      <span><strong>高</strong><small>分层、倾斜与惯性回正</small></span>
+                    </button>
+                    <button type="button" :class="{ selected: motionIntensity === 'medium' }" @click="motionIntensity = 'medium'">
+                      <i class="motion-demo motion-demo--medium"><span></span><span></span><span></span></i>
+                      <span><strong>中</strong><small>简洁顺滑的左右切换</small></span>
+                    </button>
+                    <button type="button" :class="{ selected: motionIntensity === 'low' }" @click="motionIntensity = 'low'">
+                      <i class="motion-demo motion-demo--low"><span></span><span></span><span></span></i>
+                      <span><strong>低</strong><small>极轻位移与快速淡入</small></span>
+                    </button>
+                  </div>
+                  <p>默认使用高强度；设置会立即应用并保存在当前设备。</p>
+                </section>
+
+                <section class="startup-animation-settings settings-piece" style="--settings-order: 2">
                   <div class="startup-animation-card">
                     <div class="startup-animation-card__mark"><img :src="cinelogMark" alt="" /></div>
                     <div>

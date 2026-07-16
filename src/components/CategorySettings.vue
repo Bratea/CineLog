@@ -176,10 +176,11 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="category-parent-bar">
-      <div class="category-parent-list" role="tablist" aria-label="大分类">
+      <TransitionGroup name="category-order" tag="div" class="category-parent-list" role="tablist" aria-label="大分类">
         <button
-          v-for="category in categories"
+          v-for="(category, index) in categories"
           :key="category.id"
+          :style="{ '--move-delay': `${index * 24}ms` }"
           :data-drag-id="category.id"
           data-drag-type="parent"
           :class="{ selected: activeId === category.id, dragging: dragState?.type === 'parent' && dragState?.id === category.id }"
@@ -193,7 +194,7 @@ onBeforeUnmount(() => {
           <GripVertical :size="13" />
           <span>{{ category.label }}</span>
         </button>
-      </div>
+      </TransitionGroup>
       <button class="category-add-toggle" :class="{ open: addOpen }" type="button" aria-label="添加分类" :aria-expanded="addOpen" @click="toggleAdd"><Plus :size="18" /></button>
     </div>
 
@@ -209,10 +210,11 @@ onBeforeUnmount(() => {
         <div><strong>{{ activeCategory.label }}分类</strong><span>{{ activeCategory.children.length }} 个</span></div>
         <small>长按任意分类拖动</small>
       </header>
-      <div class="category-child-list">
+      <TransitionGroup name="category-order" tag="div" class="category-child-list">
         <div
-          v-for="child in paginatedChildren"
+          v-for="(child, index) in paginatedChildren"
           :key="child.id"
+          :style="{ '--move-delay': `${index * 24}ms` }"
           :data-drag-id="child.id"
           data-drag-type="child"
           :class="{ selected: selectedChildId === child.id, dragging: dragState?.type === 'child' && dragState?.id === child.id }"
@@ -226,7 +228,7 @@ onBeforeUnmount(() => {
           <small>{{ child.source === 'data' ? '来自影片数据' : child.source === 'custom' ? '自定义' : '默认' }}</small>
           <button v-if="child.source === 'custom'" :aria-label="`删除${child.label}`" @pointerdown.stop @click.stop="removeCategory(child.id)"><X :size="14" /></button>
         </div>
-      </div>
+      </TransitionGroup>
 
       <nav class="category-pagination" :aria-label="`${activeCategory.label}分类分页`">
         <button type="button" aria-label="上一页" :disabled="page <= 1" @click="changePage(page - 1)"><ChevronLeft :size="15" /></button>
