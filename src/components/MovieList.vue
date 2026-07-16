@@ -82,5 +82,24 @@ onBeforeUnmount(() => window.clearTimeout(confirmTimer))
 .movie-list-item:hover .movie-list-arrow, .movie-list-item:focus-visible .movie-list-arrow { transform: translateX(2px) scale(1.04); }
 .movie-list-empty { padding: 40px 0; color: #999a9f; text-align: center; font-size: 12px; }
 @keyframes row-in { 0% { opacity: 0; transform: translateY(24px) scale(.97); } 72% { opacity: 1; transform: translateY(-2px) scale(1.012); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
+@media (orientation: landscape) and (max-height: 600px) {
+  .movie-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-height: min(270px, calc(100svh - 108px));
+    padding: 0 12px 6px;
+  }
+  .movie-list-item {
+    grid-template-columns: 48px minmax(0, 1fr) 30px;
+    min-height: 60px;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 15px;
+  }
+  .movie-list-poster {
+    width: 48px;
+    height: 48px;
+    border-radius: 11px;
+  }
+}
 @media (prefers-reduced-motion: reduce) { .movie-list-item { animation: none; } }
 </style>

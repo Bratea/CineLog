@@ -12,6 +12,7 @@ import DatabaseSettings from './components/DatabaseSettings.vue'
 import RotatingText from './components/RotatingText.vue'
 import { getLocalValue, setLocalValue } from './services/localDatabase'
 import cinematicAnimeCollage from './assets/cinematic-anime-collage.png'
+import cinelogMark from './assets/branding/cinelog-mark.png'
 import pixelPlus from './assets/pixel-plus.webp'
 import pixelHome from './assets/pixel-home.webp'
 import pixelMovieList from './assets/pixel-movie-list.webp'
@@ -20,8 +21,22 @@ import pixelRows from './assets/pixel-rows.webp'
 import type { Movie } from './types'
 
 const currentPage = ref('home')
+const FIRST_LAUNCH_INTRO_KEY = 'cinelog-first-launch-intro-v1'
 const MOVIE_RECORDS_STORAGE_KEY = 'movie-records'
 const LEGACY_SAMPLE_POSTERS = new Set(['pop', 'demon', 'crayon', 'coco'])
+const showFirstLaunchIntro = ref(localStorage.getItem(FIRST_LAUNCH_INTRO_KEY) !== 'seen')
+let firstLaunchIntroTimer
+
+function completeFirstLaunchIntro() {
+  if (!showFirstLaunchIntro.value) return
+  localStorage.setItem(FIRST_LAUNCH_INTRO_KEY, 'seen')
+  showFirstLaunchIntro.value = false
+}
+
+if (showFirstLaunchIntro.value) {
+  const introDuration = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 700 : 3600
+  firstLaunchIntroTimer = window.setTimeout(completeFirstLaunchIntro, introDuration)
+}
 
 const movieRecords = ref([])
 const movieRecordsReady = ref(false)
@@ -84,6 +99,7 @@ const markingWatched = ref([])
 const armedWatched = ref(null)
 const posterFlight = ref(null)
 const phoneShell = ref(null)
+const movieDetail = ref(null)
 const yearMenuOpen = ref(false)
 const settingsSection = ref('hub')
 const settingsDirection = ref('forward')
@@ -149,6 +165,75 @@ const libraryTagDragId = ref('')
 const libraryTagSuppressClick = ref(false)
 let libraryTagHoldTimer
 let pendingLibraryTagHold
+let edgeBackGesture = null
+
+const EDGE_BACK_MAX_DURATION = 700
+
+function mobileEdgeWidth(rect) {
+  return Math.max(22, Math.min(32, rect.width * .07))
+}
+
+function edgeBackPointerDown(event) {
+  if (event.pointerType === 'mouse' || event.button != null && event.button !== 0) return
+  const rect = phoneShell.value?.getBoundingClientRect()
+  if (!rect || rect.width > 520) return
+
+  const edgeWidth = mobileEdgeWidth(rect)
+  const distanceFromLeft = event.clientX - rect.left
+  const distanceFromRight = rect.right - event.clientX
+  const side = distanceFromLeft <= edgeWidth ? 'left' : distanceFromRight <= edgeWidth ? 'right' : null
+  if (!side) return
+
+  edgeBackGesture = {
+    pointerId: event.pointerId,
+    side,
+    startX: event.clientX,
+    startY: event.clientY,
+    startedAt: performance.now(),
+    horizontal: false,
+  }
+}
+
+function edgeBackPointerMove(event) {
+  if (!edgeBackGesture || edgeBackGesture.pointerId !== event.pointerId) return
+  const deltaX = event.clientX - edgeBackGesture.startX
+  const deltaY = event.clientY - edgeBackGesture.startY
+  const inwardDistance = edgeBackGesture.side === 'left' ? deltaX : -deltaX
+
+  if (!edgeBackGesture.horizontal && Math.hypot(deltaX, deltaY) > 9) {
+    if (Math.abs(deltaX) <= Math.abs(deltaY) * 1.2 || inwardDistance <= 0) {
+      edgeBackGesture = null
+      return
+    }
+    edgeBackGesture.horizontal = true
+  }
+
+  if (edgeBackGesture.horizontal) {
+    event.preventDefault()
+    event.stopPropagation()
+  }
+}
+
+function edgeBackPointerUp(event) {
+  if (!edgeBackGesture || edgeBackGesture.pointerId !== event.pointerId) return
+  const gesture = edgeBackGesture
+  edgeBackGesture = null
+  const deltaX = event.clientX - gesture.startX
+  const deltaY = event.clientY - gesture.startY
+  const inwardDistance = gesture.side === 'left' ? deltaX : -deltaX
+  const elapsed = performance.now() - gesture.startedAt
+
+  if (gesture.horizontal && inwardDistance >= 64 && Math.abs(deltaY) <= 48 && elapsed <= EDGE_BACK_MAX_DURATION) {
+    event.preventDefault()
+    event.stopPropagation()
+    navigateBackOneLevel()
+  }
+}
+
+function cancelEdgeBackGesture(event) {
+  if (!edgeBackGesture || edgeBackGesture.pointerId !== event.pointerId) return
+  edgeBackGesture = null
+}
 
 const defaultDetailLayout = [
   { id: 'tagline', label: '影片金句', description: '影片标语与氛围文案', tone: 'violet' },
@@ -328,7 +413,7 @@ function setWatchStat(value) {
 function toggleViewMode() {
   homeSwapTransition.value = 'drop-swap'
   viewMode.value = viewMode.value === 'cards' ? 'list' : 'cards'
-  window.setTimeout(() => { homeSwapTransition.value = 'card-swap' }, 820)
+  window.setTimeout(() => { homeSwapTransition.value = 'card-swap' }, 460)
 }
 
 function openHomeCustomLimit() {
@@ -402,7 +487,10 @@ function resetDetailLayout() {
   detailLayout.value = defaultDetailLayout.map((item) => ({ ...item }))
 }
 
-onBeforeUnmount(() => window.clearTimeout(libraryTagHoldTimer))
+onBeforeUnmount(() => {
+  window.clearTimeout(libraryTagHoldTimer)
+  window.clearTimeout(firstLaunchIntroTimer)
+})
 
 function markWatched(id) {
   const movie = movieRecords.value.find((item) => item.id === id)
@@ -463,8 +551,8 @@ function openDetailFromPoster(movie: Movie, source: Element | null) {
     selectedMovie.value = movie
     currentPage.value = 'detail'
     ensureTmdbDetails(movie)
-  }, 190)
-  window.setTimeout(() => { posterFlight.value = null }, 720)
+  }, 90)
+  window.setTimeout(() => { posterFlight.value = null }, 460)
 }
 
 function openHomeListDetail(payload) {
@@ -475,6 +563,39 @@ function closeDetail() {
   transitionDirection.value = detailOrigin.value === 'home' ? 'back' : 'forward'
   currentPage.value = detailOrigin.value
   selectedMovie.value = null
+}
+
+function navigateBackOneLevel() {
+  if (addDatePickerOpen.value) {
+    addDatePickerOpen.value = false
+    return
+  }
+  if (selectedTmdbResult.value) {
+    selectedTmdbResult.value = null
+    return
+  }
+  if (addOpen.value) {
+    closeRecordSheet()
+    return
+  }
+  if (categoryOpen.value) {
+    categoryOpen.value = false
+    return
+  }
+  if (currentPage.value === 'detail') {
+    movieDetail.value?.handleBackNavigation?.()
+    return
+  }
+  if (currentPage.value === 'settings') {
+    backFromSettings()
+    return
+  }
+  if (libraryDateExpanded.value || libraryMediaMenuOpen.value) {
+    libraryDateExpanded.value = false
+    libraryMediaMenuOpen.value = false
+    return
+  }
+  if (currentPage.value === 'library') showHome()
 }
 
 function openSettings(section = 'hub') {
@@ -1046,11 +1167,45 @@ function navigateDetail(direction) {
 
 <template>
   <main class="app-shell">
-    <section ref="phoneShell" class="phone" :class="{ 'phone--detail': currentPage === 'detail' }" :aria-label="currentPage === 'home' ? `${username}的观影记录首页` : currentPage === 'library' ? '电影列表页面' : currentPage === 'detail' ? '电影详情页面' : '个人设置页面'">
+    <Transition name="first-launch-dismiss">
+      <section
+        v-if="showFirstLaunchIntro"
+        class="first-launch-intro"
+        role="dialog"
+        aria-modal="true"
+        aria-label="CineLog 首次启动动画"
+      >
+        <button class="first-launch-intro__skip" type="button" @click="completeFirstLaunchIntro">跳过</button>
+        <div class="first-launch-intro__grain" aria-hidden="true"></div>
+        <div class="first-launch-intro__beam" aria-hidden="true"></div>
+        <div class="first-launch-intro__content">
+          <div class="first-launch-intro__mark">
+            <span class="first-launch-intro__halo" aria-hidden="true"></span>
+            <img :src="cinelogMark" alt="" />
+          </div>
+          <div class="first-launch-intro__copy">
+            <h1>CineLog</h1>
+            <p>让每一次观影，都有迹可循</p>
+          </div>
+          <div class="first-launch-intro__progress" aria-hidden="true"><i></i></div>
+        </div>
+      </section>
+    </Transition>
+
+    <section
+      ref="phoneShell"
+      class="phone"
+      :class="{ 'phone--detail': currentPage === 'detail' }"
+      :aria-label="currentPage === 'home' ? `${username}的观影记录首页` : currentPage === 'library' ? '电影列表页面' : currentPage === 'detail' ? '电影详情页面' : '个人设置页面'"
+      @pointerdown.capture="edgeBackPointerDown"
+      @pointermove.capture="edgeBackPointerMove"
+      @pointerup.capture="edgeBackPointerUp"
+      @pointercancel.capture="cancelEdgeBackGesture"
+    >
       <div class="ambient-orb ambient-orb--one" aria-hidden="true"></div>
       <div class="ambient-orb ambient-orb--two" aria-hidden="true"></div>
 
-      <Transition :name="surfaceTransitionName" :duration="820">
+      <Transition :name="surfaceTransitionName" :duration="460">
         <section v-if="surfacePage === 'home'" key="home" class="surface-view home-surface">
         <Transition name="record-notice">
           <AppNotice v-if="homeNotice" :key="`${homeNotice.title}-${homeNotice.message}`" :title="homeNotice.title" :message="homeNotice.message" tone="warning" placement="home" :duration="2400" />
@@ -1104,7 +1259,7 @@ function navigateDetail(direction) {
                 </div>
               </Transition>
             </div>
-            <button v-else-if="activeWatchStat === 'watched'" class="period-badge" @click="openSettings('home')">{{ periodLabel }}</button>
+            <span v-else-if="activeWatchStat === 'watched'" class="period-badge">{{ periodLabel }}</span>
           </div>
 
           <Transition :name="homeSwapTransition" mode="out-in" class="surface-piece" style="--piece-order: 2">
@@ -1296,7 +1451,7 @@ function navigateDetail(direction) {
 
       <div v-if="posterFlight" class="poster-flight" :class="`poster-flight--${posterFlight.movie.poster}`" :style="{ '--flight-left': `${posterFlight.left}px`, '--flight-top': `${posterFlight.top}px`, '--flight-width': `${posterFlight.width}px`, '--flight-height': `${posterFlight.height}px`, ...libraryPosterStyle(posterFlight.movie) }" aria-hidden="true"></div>
 
-      <MovieDetail v-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" :entry-mode="detailEntry" :layout-order="detailLayout.map((item) => item.id)" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" @update-record="updateMovieRecord" @request-person="requestPersonDetails" />
+      <MovieDetail ref="movieDetail" v-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" :entry-mode="detailEntry" :layout-order="detailLayout.map((item) => item.id)" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" @update-record="updateMovieRecord" @request-person="requestPersonDetails" />
 
       <Transition name="settings-shell">
         <section v-if="currentPage === 'settings'" class="personal-settings">

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import * as THREE from 'three'
+import { Capacitor } from '@capacitor/core'
 import { Check, ChevronRight, ChevronUp, Star } from 'lucide-vue-next'
 import cinematicAnimeCollage from '../assets/cinematic-anime-collage.png'
 import { designPx, designRem } from '../utils/responsive'
@@ -129,12 +129,14 @@ function pointerUp() {
 function beginDetailOpen(movie) {
   if (!movie || isOpeningDetail.value) return
   isOpeningDetail.value = true
-  openTimer = window.setTimeout(() => emit('open-detail', movie), 480)
+  startGlow()
+  openTimer = window.setTimeout(() => emit('open-detail', movie), 220)
 }
 
 function resetOpenState() {
   window.clearTimeout(openTimer)
   window.clearTimeout(returnTimer)
+  cancelAnimationFrame(frame)
   isOpeningDetail.value = false
   isReturning.value = false
   dragStart.value = null
@@ -231,6 +233,10 @@ function watchSwipeUp() {
 
 function renderGlow(time = 0) {
   if (!renderer || !scene || !material) return
+  if (!props.active || !isOpeningDetail.value) {
+    frame = 0
+    return
+  }
   material.uniforms.uTime.value = time * 0.0005
   material.uniforms.uPointer.value = dragX.value / 110
   const palette = activeMovie.value?.poster === 'demon' ? [0.95, 0.47, 0.1] : activeMovie.value?.poster === 'coco' ? [0.49, 0.31, 0.83] : [0.18, 0.56, 0.82]
@@ -239,13 +245,22 @@ function renderGlow(time = 0) {
   frame = requestAnimationFrame(renderGlow)
 }
 
-function setupThree() {
+function startGlow() {
+  if (!renderer || frame) return
+  frame = requestAnimationFrame(renderGlow)
+}
+
+async function setupThree() {
+  if (Capacitor.isNativePlatform()) return
   const canvas = glowCanvas.value
   const container = deck.value
   if (!canvas || !container) return
 
-  renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
+  const THREE = await import('three')
+  if (!glowCanvas.value || !deck.value) return
+
+  renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false, powerPreference: 'low-power' })
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25))
   scene = new THREE.Scene()
   camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
   material = new THREE.ShaderMaterial({
@@ -281,12 +296,14 @@ function setupThree() {
   resizeObserver = new ResizeObserver(resize)
   resizeObserver.observe(container)
   resize()
-  renderGlow()
+  renderer.render(scene, camera)
 }
 
 watch(activeIndex, () => nextTick())
 watch(() => props.movies, () => { activeIndex.value = 0; resetSwipe() })
-watch(() => props.active, (active) => { if (!active) resetOpenState() })
+watch(() => props.active, (active) => {
+  if (!active) resetOpenState()
+})
 onMounted(setupThree)
 onBeforeUnmount(() => {
   window.clearTimeout(openTimer)
@@ -440,6 +457,32 @@ onBeforeUnmount(() => {
   .album-card { height: 326px; }
   .album-info { padding-top: 44px; }
   .deck-footer { min-height: 30px; }
+}
+@media (orientation: landscape) and (max-height: 600px) {
+  .album { top: 0; }
+  .deck {
+    height: min(274px, calc(100svh - 102px));
+    margin: 0 8px;
+    border-radius: 24px;
+  }
+  .album-card {
+    width: min(29vw, 196px);
+    height: min(268px, calc(100svh - 108px));
+    border-radius: 22px;
+  }
+  .album-info { padding: 52px 12px 11px; }
+  .album-info h2 { font-size: 16px; }
+  .album-info p { font-size: 8px; }
+  .watched-card-footer { margin-top: 6px; }
+  .watch-slider {
+    height: 38px;
+    margin-top: 5px;
+  }
+  .watch-slider__handle {
+    width: 30px;
+    height: 30px;
+  }
+  .deck-footer { min-height: 20px; }
 }
 </style>
 .watch-slider.armed { color:#ffe8a7; border-color:rgba(255,210,105,.36); background:rgba(66,51,23,.64); box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 0 20px rgba(255,195,67,.12); }
