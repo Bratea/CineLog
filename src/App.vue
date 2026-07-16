@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { ArrowDownUp, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, ExternalLink, FileText, FolderTree, GripVertical, HardDrive, House, LayoutPanelTop, Pencil, RefreshCw, Search, SlidersHorizontal, Star, Trash2, Upload, X } from 'lucide-vue-next'
+import { ArrowDownUp, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, ExternalLink, FileText, FolderTree, GripVertical, HardDrive, House, LayoutPanelTop, Pencil, Play, RefreshCw, Search, SlidersHorizontal, Star, Trash2, Upload, X } from 'lucide-vue-next'
 import MovieCarousel from './components/MovieCarousel.vue'
 import MovieList from './components/MovieList.vue'
 import MovieDetail from './components/MovieDetail.vue'
@@ -21,22 +21,35 @@ import pixelRows from './assets/pixel-rows.webp'
 import type { Movie } from './types'
 
 const currentPage = ref('home')
-const FIRST_LAUNCH_INTRO_KEY = 'cinelog-first-launch-intro-v1'
+const STARTUP_ANIMATION_ENABLED_KEY = 'cinelog-startup-animation-enabled'
 const MOVIE_RECORDS_STORAGE_KEY = 'movie-records'
 const LEGACY_SAMPLE_POSTERS = new Set(['pop', 'demon', 'crayon', 'coco'])
-const showFirstLaunchIntro = ref(localStorage.getItem(FIRST_LAUNCH_INTRO_KEY) !== 'seen')
-let firstLaunchIntroTimer
+const startupAnimationEnabled = ref(localStorage.getItem(STARTUP_ANIMATION_ENABLED_KEY) !== 'false')
+const showStartupAnimation = ref(startupAnimationEnabled.value)
+let startupAnimationTimer
 
-function completeFirstLaunchIntro() {
-  if (!showFirstLaunchIntro.value) return
-  localStorage.setItem(FIRST_LAUNCH_INTRO_KEY, 'seen')
-  showFirstLaunchIntro.value = false
+function completeStartupAnimation() {
+  if (!showStartupAnimation.value) return
+  window.clearTimeout(startupAnimationTimer)
+  showStartupAnimation.value = false
 }
 
-if (showFirstLaunchIntro.value) {
+function scheduleStartupAnimation() {
+  window.clearTimeout(startupAnimationTimer)
+  if (!showStartupAnimation.value) return
   const introDuration = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 700 : 3600
-  firstLaunchIntroTimer = window.setTimeout(completeFirstLaunchIntro, introDuration)
+  startupAnimationTimer = window.setTimeout(completeStartupAnimation, introDuration)
 }
+
+function previewStartupAnimation() {
+  showStartupAnimation.value = false
+  nextTick(() => {
+    showStartupAnimation.value = true
+    scheduleStartupAnimation()
+  })
+}
+
+scheduleStartupAnimation()
 
 const movieRecords = ref([])
 const movieRecordsReady = ref(false)
@@ -81,6 +94,7 @@ const username = ref(localStorage.getItem('movie-username') || '通通')
 const activeWatchStat = ref('watched')
 const viewMode = ref('cards')
 const homeSwapTransition = ref('card-swap')
+const surfaceBridge = ref(null)
 const statPeriod = ref(localStorage.getItem('movie-stat-period') || 'year')
 const savedHomeDisplayLimit = Number(localStorage.getItem('movie-home-limit'))
 const homeDisplayLimit = ref(Number.isFinite(savedHomeDisplayLimit) && savedHomeDisplayLimit > 0 ? Math.min(99, Math.round(savedHomeDisplayLimit)) : 10)
@@ -120,9 +134,6 @@ const tmdbTestMessage = ref('')
 const expandedLibraryId = ref(null)
 const recordExpanded = ref(false)
 const recordMode = ref<'search' | 'import'>('search')
-const importMethod = ref<'single' | 'batch'>('single')
-const importSingleTitle = ref('')
-const importSingleWatched = ref(false)
 const importFileInput = ref<HTMLInputElement | null>(null)
 const importDraftWatched = ref([])
 const importDraftUnwatched = ref([])
@@ -295,6 +306,7 @@ let watchConfirmTimer
 let recordNoticeTimer
 let libraryNoticeTimer
 let homeNoticeTimer
+let surfaceBridgeTimer
 
 const watchedCount = computed(() => movieRecords.value.filter((movie) => movie.watched).length)
 const displayedTmdbResults = computed(() => tmdbResults.value.slice(0, tmdbVisibleCount.value))
@@ -392,6 +404,9 @@ watch(libraryDateBasis, (value) => localStorage.setItem('movie-library-date-basi
 watch(libraryYearValue, (value) => localStorage.setItem('movie-library-year', String(value)))
 watch(libraryMonthValue, (value) => localStorage.setItem('movie-library-month', String(value)))
 watch(selectedLibraryDay, (value) => localStorage.setItem('movie-library-day', String(value)))
+watch(startupAnimationEnabled, (value) => {
+  localStorage.setItem(STARTUP_ANIMATION_ENABLED_KEY, String(value))
+})
 watch(movieRecords, (value) => {
   if (!movieRecordsReady.value) return
   window.clearTimeout(persistMovieRecordsTimer)
@@ -497,7 +512,8 @@ function resetDetailLayout() {
 
 onBeforeUnmount(() => {
   window.clearTimeout(libraryTagHoldTimer)
-  window.clearTimeout(firstLaunchIntroTimer)
+  window.clearTimeout(startupAnimationTimer)
+  window.clearTimeout(surfaceBridgeTimer)
 })
 
 function markWatched(id) {
@@ -744,6 +760,7 @@ function showHome() {
   if (currentPage.value === 'home') return
   libraryDateExpanded.value = false
   libraryMediaMenuOpen.value = false
+  showSurfaceBridge('home', 'back')
   transitionDirection.value = 'back'
   activeTab.value = 'home'
   currentPage.value = 'home'
@@ -751,9 +768,20 @@ function showHome() {
 
 function showLibrary() {
   if (currentPage.value === 'library') return
+  showSurfaceBridge('library', 'forward')
   transitionDirection.value = 'forward'
   activeTab.value = 'list'
   currentPage.value = 'library'
+}
+
+function showSurfaceBridge(target, direction) {
+  window.clearTimeout(surfaceBridgeTimer)
+  surfaceBridge.value = {
+    id: `${target}-${Date.now()}`,
+    target,
+    direction,
+  }
+  surfaceBridgeTimer = window.setTimeout(() => { surfaceBridge.value = null }, 820)
 }
 
 function dismissLibraryPopovers(event) {
@@ -880,17 +908,6 @@ function addImportDraft(title: string, watched: boolean) {
   return true
 }
 
-function addSingleImportDraft() {
-  if (!importSingleTitle.value.trim()) return
-  const added = addImportDraft(importSingleTitle.value, importSingleWatched.value)
-  if (added) {
-    importSingleTitle.value = ''
-    showRecordNotice('已加入待导入', '片名已放入对应清单，可继续调整。')
-  } else {
-    showRecordNotice('没有加入', '请输入包含中文的片名，或检查是否已经存在。', 'warning')
-  }
-}
-
 function parseImportText(text: string) {
   let addedCount = 0
   text.split(/\r?\n/).forEach((line) => {
@@ -901,19 +918,62 @@ function parseImportText(text: string) {
   return addedCount
 }
 
+function importWatchedValue(value: unknown) {
+  const normalized = String(value ?? '').trim().toLowerCase()
+  if (['x', '1', 'true', 'yes', '是', '已观看', '看过', '已看'].includes(normalized)) return true
+  if (['0', 'false', 'no', '否', '未观看', '未看', '待看'].includes(normalized)) return false
+  return null
+}
+
+async function parseImportWorkbook(buffer: ArrayBuffer) {
+  const XLSX = await import('xlsx')
+  const workbook = XLSX.read(buffer, { type: 'array' })
+  let addedCount = 0
+  workbook.SheetNames.forEach((sheetName) => {
+    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '' }) as unknown[][]
+    if (!rows.length) return
+    const header = rows[0].map((cell) => String(cell).trim())
+    const titleColumn = header.findIndex((cell) => /片名|电影|影片|标题|名称/.test(cell))
+    const watchedColumn = header.findIndex((cell) => /观看|状态|是否看过|已看/.test(cell))
+    const hasHeader = titleColumn >= 0
+    rows.slice(hasHeader ? 1 : 0).forEach((row) => {
+      const cells = row.map((cell) => String(cell).trim()).filter(Boolean)
+      if (!cells.length) return
+      const checklistCell = cells.find((cell) => /^\s*\[[xX ]\]\s*/.test(cell))
+      if (checklistCell) {
+        const match = checklistCell.match(/^\s*\[([xX ])\]\s*(.+)$/)
+        if (match && addImportDraft(match[2], match[1].toLowerCase() === 'x')) addedCount += 1
+        return
+      }
+      const title = titleColumn >= 0
+        ? String(row[titleColumn] ?? '')
+        : cells.find((cell) => hasChineseTitle(cell) && importWatchedValue(cell) === null && !/^\d{4}$/.test(cell))
+      if (!title) return
+      const watched = watchedColumn >= 0
+        ? importWatchedValue(row[watchedColumn]) ?? false
+        : importWatchedValue(sheetName) ?? cells.map(importWatchedValue).find((value) => value !== null) ?? false
+      if (addImportDraft(title, watched)) addedCount += 1
+    })
+  })
+  return addedCount
+}
+
 async function handleImportFile(event: Event) {
   const input = event.currentTarget as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
   try {
-    const addedCount = parseImportText(await file.text())
+    const extension = file.name.split('.').pop()?.toLowerCase()
+    const addedCount = extension === 'xlsx' || extension === 'xls' || extension === 'csv'
+      ? await parseImportWorkbook(await file.arrayBuffer())
+      : parseImportText(await file.text())
     showRecordNotice(
       addedCount ? '文件解析完成' : '没有可导入条目',
-      addedCount ? `已生成 ${addedCount} 条中文片名，请先检查分类。` : '仅识别以 [x] 或 [ ] 开头、且包含中文的片名。',
+      addedCount ? `已生成 ${addedCount} 条中文片名，请先检查分类。` : 'TXT 需使用 [x]/[ ]；Excel 需包含中文片名，可附观看状态列。',
       addedCount ? 'success' : 'warning',
     )
   } catch {
-    showRecordNotice('读取失败', '无法读取这个文件，请选择 UTF-8 编码的 TXT 文件。', 'warning')
+    showRecordNotice('读取失败', '无法读取文件，请检查 TXT、Excel 或 CSV 的内容格式。', 'warning')
   } finally {
     input.value = ''
   }
@@ -1312,13 +1372,13 @@ function navigateDetail(direction) {
   <main class="app-shell">
     <Transition name="first-launch-dismiss">
       <section
-        v-if="showFirstLaunchIntro"
+        v-if="showStartupAnimation"
         class="first-launch-intro"
         role="dialog"
         aria-modal="true"
-        aria-label="CineLog 首次启动动画"
+        aria-label="CineLog 启动动画"
       >
-        <button class="first-launch-intro__skip" type="button" @click="completeFirstLaunchIntro">跳过</button>
+        <button class="first-launch-intro__skip" type="button" @click="completeStartupAnimation">跳过</button>
         <div class="first-launch-intro__grain" aria-hidden="true"></div>
         <div class="first-launch-intro__beam" aria-hidden="true"></div>
         <div class="first-launch-intro__content">
@@ -1348,7 +1408,22 @@ function navigateDetail(direction) {
       <div class="ambient-orb ambient-orb--one" aria-hidden="true"></div>
       <div class="ambient-orb ambient-orb--two" aria-hidden="true"></div>
 
-      <Transition :name="surfaceTransitionName" :duration="460">
+      <Transition name="surface-bridge">
+        <div
+          v-if="surfaceBridge"
+          :key="surfaceBridge.id"
+          class="surface-bridge"
+          :class="`is-${surfaceBridge.direction}`"
+          aria-hidden="true"
+        >
+          <span class="surface-bridge__frames"><i></i><i></i><i></i></span>
+          <span class="surface-bridge__icon">
+            <img :src="surfaceBridge.target === 'library' ? pixelMovieList : pixelHome" alt="" />
+          </span>
+        </div>
+      </Transition>
+
+      <Transition :name="surfaceTransitionName" :duration="820">
         <section v-if="surfacePage === 'home'" key="home" class="surface-view home-surface">
         <Transition name="record-notice">
           <AppNotice v-if="homeNotice" :key="`${homeNotice.title}-${homeNotice.message}`" :title="homeNotice.title" :message="homeNotice.message" tone="warning" placement="home" :duration="2400" />
@@ -1544,7 +1619,7 @@ function navigateDetail(direction) {
         <div class="add-sheet" :class="{ expanded: recordExpanded, closing: recordClosing }" role="dialog" aria-modal="true" aria-label="添加电影记录">
           <div class="sheet-handle"></div>
           <template v-if="!recordExpanded">
-            <h2>记录一部电影</h2><p>输入电影名称，从 TMDB 获取封面和影片资料。</p><button @click="startRecord">开始记录</button><button class="record-import-entry" @click="startImport"><Upload :size="15" />导入中文片单</button>
+            <h2>记录一部电影</h2><p>输入电影名称，从 TMDB 获取封面和影片资料。</p><div class="record-entry-actions"><button @click="startRecord">开始记录</button><button class="record-import-entry" @click="startImport"><Upload :size="15" />导入片单</button></div>
           </template>
           <template v-else-if="recordMode === 'search'">
             <Transition name="record-notice">
@@ -1594,11 +1669,7 @@ function navigateDetail(direction) {
               <AppNotice v-if="recordNotice" :key="`${recordNotice.title}-${recordNotice.message}`" :title="recordNotice.title" :message="recordNotice.message" :tone="recordNotice.type" placement="record" :duration="3200" closable @close="recordNotice = null" />
             </Transition>
             <header class="record-header import-record-header"><div><small>中文片单</small><h2>检查后再导入</h2></div><button aria-label="关闭导入片单" @click="closeRecordSheet"><X :size="19" /></button></header>
-            <div class="import-mode-switch" role="tablist" aria-label="导入方式"><i :class="{ batch: importMethod === 'batch' }"></i><button type="button" role="tab" :aria-selected="importMethod === 'single'" :class="{ selected: importMethod === 'single' }" @click="importMethod = 'single'">单个导入</button><button type="button" role="tab" :aria-selected="importMethod === 'batch'" :class="{ selected: importMethod === 'batch' }" @click="importMethod = 'batch'">一键导入</button></div>
-            <Transition name="import-tool" mode="out-in">
-              <form v-if="importMethod === 'single'" key="single" class="import-single-tool" @submit.prevent="addSingleImportDraft"><Search :size="17" /><input v-model="importSingleTitle" type="search" placeholder="搜索或输入中文片名" aria-label="待导入中文片名" /><label><span>已观看</span><input v-model="importSingleWatched" type="checkbox" /><i></i></label><button type="submit">加入</button></form>
-              <div v-else key="batch" class="import-batch-tool"><input ref="importFileInput" class="import-file-input" type="file" accept=".txt,text/plain" @change="handleImportFile" /><button type="button" @click="importFileInput?.click()"><FileText :size="17" /><span><strong>选择 TXT 中文片单</strong><small>识别 [x] 已观看与 [ ] 未观看</small></span><Upload :size="15" /></button></div>
-            </Transition>
+            <div class="import-batch-tool"><input ref="importFileInput" class="import-file-input" type="file" accept=".txt,.csv,.xlsx,.xls,text/plain,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" @change="handleImportFile" /><button type="button" @click="importFileInput?.click()"><FileText :size="17" /><span><strong>选择 TXT 或 Excel 片单</strong><small>支持 .txt · .xlsx · .xls · .csv</small></span><Upload :size="15" /></button></div>
             <section class="import-review">
               <header><div><strong>待导入列表</strong><small>共 {{ importDraftWatched.length + importDraftUnwatched.length }} 部</small></div><button type="button" :disabled="!importDraftWatched.length && !importDraftUnwatched.length" @click="importCardsReversed = !importCardsReversed"><ArrowDownUp :size="14" />交换上下</button></header>
               <div class="import-card-stack" :class="{ reversed: importCardsReversed }">
@@ -1634,8 +1705,8 @@ function navigateDetail(direction) {
               <header class="settings-header settings-piece" style="--settings-order: 0">
                 <button :aria-label="settingsSection === 'hub' ? '返回首页' : '返回设置'" @click="backFromSettings"><ChevronLeft :size="22" /></button>
                 <div>
-                  <h1>{{ settingsSection === 'hub' ? '设置' : settingsSection === 'profile' ? '个人信息' : settingsSection === 'home' ? '首页编辑' : settingsSection === 'library' ? '列表设置' : settingsSection === 'categories' ? '分类设置' : settingsSection === 'detail-layout' ? '电影详情布局' : settingsSection === 'database' ? '数据库设置' : 'TMDB 设置' }}</h1>
-                  <p>{{ settingsSection === 'hub' ? '把常用设置收进清晰的分类里。' : settingsSection === 'profile' ? '头像和名称会显示在首页。' : settingsSection === 'home' ? '控制首页的统计与展示数量。' : settingsSection === 'library' ? '统一管理标签、排序与工具位置。' : settingsSection === 'categories' ? '管理两层分类、自定义内容与显示顺序。' : settingsSection === 'detail-layout' ? '调整详情模块的优先展示顺序。' : settingsSection === 'database' ? '查看当前设备的本地数据库状态。' : '配置数据接口与国内网络访问。' }}</p>
+                  <h1>{{ settingsSection === 'hub' ? '设置' : settingsSection === 'profile' ? '个人信息' : settingsSection === 'home' ? '首页编辑' : settingsSection === 'library' ? '列表设置' : settingsSection === 'categories' ? '分类设置' : settingsSection === 'detail-layout' ? '电影详情布局' : settingsSection === 'animation' ? '动画设置' : settingsSection === 'database' ? '数据库设置' : 'TMDB 设置' }}</h1>
+                  <p>{{ settingsSection === 'hub' ? '把常用设置收进清晰的分类里。' : settingsSection === 'profile' ? '头像和名称会显示在首页。' : settingsSection === 'home' ? '控制首页的统计与展示数量。' : settingsSection === 'library' ? '统一管理标签、排序与工具位置。' : settingsSection === 'categories' ? '管理两层分类、自定义内容与显示顺序。' : settingsSection === 'detail-layout' ? '调整详情模块的优先展示顺序。' : settingsSection === 'animation' ? '控制 App 冷启动时是否播放品牌动画。' : settingsSection === 'database' ? '查看当前设备的本地数据库状态。' : '配置数据接口与国内网络访问。' }}</p>
                 </div>
               </header>
 
@@ -1654,6 +1725,7 @@ function navigateDetail(direction) {
                   <button @click="openSettingsSection('library')"><i class="settings-icon settings-icon--library"><SlidersHorizontal :size="18" /></i><span><strong>列表设置</strong><small>标签、排序与工具位置</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('categories')"><i class="settings-icon settings-icon--categories"><FolderTree :size="18" /></i><span><strong>分类设置</strong><small>两层分类、自定义与拖动排序</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('detail-layout')"><i class="settings-icon settings-icon--detail"><LayoutPanelTop :size="18" /></i><span><strong>电影详情布局</strong><small>7 个模块的展示优先级</small></span><ChevronRight :size="18" /></button>
+                  <button @click="openSettingsSection('animation')"><i class="settings-icon settings-icon--animation"><Play :size="18" /></i><span><strong>动画设置</strong><small>启动动画显示与即时预览</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('database')"><i class="settings-icon settings-icon--database"><HardDrive :size="18" /></i><span><strong>数据库设置</strong><small>本地引擎、连接状态与数据概况</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('tmdb')"><i class="settings-icon settings-icon--tmdb"><Database :size="18" /></i><span><strong>TMDB 设置</strong><small>API、图片与国内网络</small></span><ChevronRight :size="18" /></button>
                 </div>
@@ -1708,6 +1780,28 @@ function navigateDetail(direction) {
 
               <template v-else-if="settingsSection === 'detail-layout'">
                 <DetailLayoutSettings v-model:modules="detailLayout" @reset="resetDetailLayout" />
+              </template>
+
+              <template v-else-if="settingsSection === 'animation'">
+                <section class="startup-animation-settings settings-piece" style="--settings-order: 1">
+                  <div class="startup-animation-card">
+                    <div class="startup-animation-card__mark"><img :src="cinelogMark" alt="" /></div>
+                    <div>
+                      <strong>开机动画显示</strong>
+                      <span>App 从后台进程被彻底关闭后，再次打开时播放 CineLog 启动动画。</span>
+                    </div>
+                    <button
+                      type="button"
+                      class="settings-toggle"
+                      :class="{ enabled: startupAnimationEnabled }"
+                      :aria-pressed="startupAnimationEnabled"
+                      :aria-label="startupAnimationEnabled ? '关闭启动动画' : '开启启动动画'"
+                      @click="startupAnimationEnabled = !startupAnimationEnabled"
+                    ><i></i></button>
+                  </div>
+                  <button type="button" class="startup-animation-preview" @click="previewStartupAnimation"><Play :size="15" />预览启动动画</button>
+                  <p>普通返回首页、横竖屏切换和短暂进入后台不会重复播放。</p>
+                </section>
               </template>
 
               <template v-else-if="settingsSection === 'database'">
