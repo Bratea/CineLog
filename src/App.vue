@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
+import type { HttpResponse } from '@capacitor/core'
 import { ArrowDownUp, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, ExternalLink, FileText, FolderTree, GripVertical, HardDrive, House, LayoutPanelTop, MoonStar, Pencil, Play, RefreshCw, Search, SlidersHorizontal, Star, Trash2, Upload, X } from 'lucide-vue-next'
 import MovieCarousel from './components/MovieCarousel.vue'
 import MovieList from './components/MovieList.vue'
@@ -767,7 +768,7 @@ function tmdbRequest(url, params = {}) {
 async function executeTmdbRequest(request) {
   if (Capacitor.isNativePlatform()) {
     try {
-      const response = await Promise.race([
+      const response = await Promise.race<HttpResponse>([
         CapacitorHttp.get({
           url: request.url,
           headers: request.options.headers,
@@ -775,7 +776,7 @@ async function executeTmdbRequest(request) {
           readTimeout: 15000,
           responseType: 'json',
         }),
-        new Promise((_, reject) => window.setTimeout(() => reject(new Error('连接超时')), 18000)),
+        new Promise<HttpResponse>((_, reject) => window.setTimeout(() => reject(new Error('连接超时')), 18000)),
       ])
       return {
         ok: response.status >= 200 && response.status < 300,
