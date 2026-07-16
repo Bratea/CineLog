@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, ExternalLink, FolderTree, GripVertical, HardDrive, House, LayoutPanelTop, Pencil, RefreshCw, Search, SlidersHorizontal, Star, Upload, X } from 'lucide-vue-next'
+import { ArrowDownUp, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, ExternalLink, FileText, FolderTree, GripVertical, HardDrive, House, LayoutPanelTop, Pencil, RefreshCw, Search, SlidersHorizontal, Star, Trash2, Upload, X } from 'lucide-vue-next'
 import MovieCarousel from './components/MovieCarousel.vue'
 import MovieList from './components/MovieList.vue'
 import MovieDetail from './components/MovieDetail.vue'
@@ -119,6 +119,14 @@ const tmdbTestState = ref('idle')
 const tmdbTestMessage = ref('')
 const expandedLibraryId = ref(null)
 const recordExpanded = ref(false)
+const recordMode = ref<'search' | 'import'>('search')
+const importMethod = ref<'single' | 'batch'>('single')
+const importSingleTitle = ref('')
+const importSingleWatched = ref(false)
+const importFileInput = ref<HTMLInputElement | null>(null)
+const importDraftWatched = ref([])
+const importDraftUnwatched = ref([])
+const importCardsReversed = ref(false)
 const tmdbQuery = ref('')
 const tmdbResults = ref([])
 const tmdbSearchState = ref('idle')
@@ -821,6 +829,7 @@ function closeRecordSheet() {
     recordExpanded.value = false
     selectedTmdbResult.value = null
     recordNotice.value = null
+    recordMode.value = 'search'
     recordClosing.value = false
   }, recordExpanded.value ? 560 : 320)
 }
@@ -831,7 +840,141 @@ function openTmdbSettingsFromRecord() {
 }
 
 function startRecord() {
+  recordMode.value = 'search'
   recordExpanded.value = true
+}
+
+function startImport() {
+  recordMode.value = 'import'
+  recordExpanded.value = true
+}
+
+function normalizeImportTitle(rawTitle: string) {
+  return rawTitle
+    .replace(/^\s*\[[xX ]\]\s*/, '')
+    .replace(/[⭐★☆]+/g, '')
+    .replace(/[（(]\s*\d+\s*集(?:剧)?\s*[）)]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function hasChineseTitle(value: string) {
+  return /[\u3400-\u9fff]/u.test(value)
+}
+
+function importTitleKey(value: string) {
+  return value.toLocaleLowerCase('zh-CN').replace(/[\s·:：!！?？,，.。'"“”‘’《》()（）\-—_]/g, '')
+}
+
+function addImportDraft(title: string, watched: boolean) {
+  const normalizedTitle = normalizeImportTitle(title)
+  if (!hasChineseTitle(normalizedTitle)) return false
+  const key = importTitleKey(normalizedTitle)
+  const allDrafts = [...importDraftWatched.value, ...importDraftUnwatched.value]
+  if (allDrafts.some((item) => importTitleKey(item.title) === key)) return false
+  const item = {
+    id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    title: normalizedTitle,
+  }
+  ;(watched ? importDraftWatched : importDraftUnwatched).value.push(item)
+  return true
+}
+
+function addSingleImportDraft() {
+  if (!importSingleTitle.value.trim()) return
+  const added = addImportDraft(importSingleTitle.value, importSingleWatched.value)
+  if (added) {
+    importSingleTitle.value = ''
+    showRecordNotice('已加入待导入', '片名已放入对应清单，可继续调整。')
+  } else {
+    showRecordNotice('没有加入', '请输入包含中文的片名，或检查是否已经存在。', 'warning')
+  }
+}
+
+function parseImportText(text: string) {
+  let addedCount = 0
+  text.split(/\r?\n/).forEach((line) => {
+    const match = line.match(/^\s*\[([xX ])\]\s*(.+)$/)
+    if (!match) return
+    if (addImportDraft(match[2], match[1].toLowerCase() === 'x')) addedCount += 1
+  })
+  return addedCount
+}
+
+async function handleImportFile(event: Event) {
+  const input = event.currentTarget as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    const addedCount = parseImportText(await file.text())
+    showRecordNotice(
+      addedCount ? '文件解析完成' : '没有可导入条目',
+      addedCount ? `已生成 ${addedCount} 条中文片名，请先检查分类。` : '仅识别以 [x] 或 [ ] 开头、且包含中文的片名。',
+      addedCount ? 'success' : 'warning',
+    )
+  } catch {
+    showRecordNotice('读取失败', '无法读取这个文件，请选择 UTF-8 编码的 TXT 文件。', 'warning')
+  } finally {
+    input.value = ''
+  }
+}
+
+function moveImportDraft(item, fromWatched: boolean) {
+  const source = fromWatched ? importDraftWatched : importDraftUnwatched
+  const target = fromWatched ? importDraftUnwatched : importDraftWatched
+  source.value = source.value.filter((draft) => draft.id !== item.id)
+  target.value.push(item)
+}
+
+function removeImportDraft(item, watched: boolean) {
+  const source = watched ? importDraftWatched : importDraftUnwatched
+  source.value = source.value.filter((draft) => draft.id !== item.id)
+}
+
+function clearImportDrafts() {
+  importDraftWatched.value = []
+  importDraftUnwatched.value = []
+}
+
+function confirmImportDrafts() {
+  const drafts = [
+    ...importDraftWatched.value.map((item) => ({ ...item, watched: true })),
+    ...importDraftUnwatched.value.map((item) => ({ ...item, watched: false })),
+  ]
+  if (!drafts.length) return
+  const existingTitles = new Set(movieRecords.value.map((movie) => importTitleKey(movie.title || '')))
+  const today = new Date().toISOString().slice(0, 10)
+  const importable = drafts.filter((item) => !existingTitles.has(importTitleKey(item.title)))
+  const records = importable.map((item, index) => ({
+    id: `import-${Date.now()}-${index}`,
+    title: item.title,
+    originalTitle: item.title,
+    meta: '中文清单导入 · 电影',
+    year: '待定',
+    rating: null,
+    personalRating: null,
+    tmdbRating: null,
+    tmdbVoteCount: 0,
+    releaseDate: '',
+    originalLanguage: 'zh',
+    genreIds: [],
+    watched: item.watched,
+    watchedDate: '',
+    recordDate: today,
+    poster: 'import',
+    posterText: item.title,
+    poster_path: '',
+    backdrop_path: '',
+    overview: '通过中文片名清单导入，影片资料可稍后补充。',
+    feeling: item.watched ? '已观看，等待补充评价。' : '已加入待看清单。',
+  }))
+  movieRecords.value.unshift(...records)
+  clearImportDrafts()
+  showRecordNotice(
+    records.length ? '导入成功' : '无需重复导入',
+    records.length ? `已写入 ${records.length} 部，跳过 ${drafts.length - records.length} 部重复片名。` : '待导入片名均已存在。',
+    records.length ? 'success' : 'warning',
+  )
 }
 
 function tmdbPoster(result) {
@@ -1401,9 +1544,9 @@ function navigateDetail(direction) {
         <div class="add-sheet" :class="{ expanded: recordExpanded, closing: recordClosing }" role="dialog" aria-modal="true" aria-label="添加电影记录">
           <div class="sheet-handle"></div>
           <template v-if="!recordExpanded">
-            <h2>记录一部电影</h2><p>输入电影名称，从 TMDB 获取封面和影片资料。</p><button @click="startRecord">开始记录</button>
+            <h2>记录一部电影</h2><p>输入电影名称，从 TMDB 获取封面和影片资料。</p><button @click="startRecord">开始记录</button><button class="record-import-entry" @click="startImport"><Upload :size="15" />导入中文片单</button>
           </template>
-          <template v-else>
+          <template v-else-if="recordMode === 'search'">
             <Transition name="record-notice">
               <AppNotice v-if="recordNotice" :key="`${recordNotice.title}-${recordNotice.message}`" :title="recordNotice.title" :message="recordNotice.message" :tone="recordNotice.type" placement="record" :duration="3200" closable @close="recordNotice = null" />
             </Transition>
@@ -1445,6 +1588,37 @@ function navigateDetail(direction) {
                 </section>
               </div>
             </Transition>
+          </template>
+          <template v-else>
+            <Transition name="record-notice">
+              <AppNotice v-if="recordNotice" :key="`${recordNotice.title}-${recordNotice.message}`" :title="recordNotice.title" :message="recordNotice.message" :tone="recordNotice.type" placement="record" :duration="3200" closable @close="recordNotice = null" />
+            </Transition>
+            <header class="record-header import-record-header"><div><small>中文片单</small><h2>检查后再导入</h2></div><button aria-label="关闭导入片单" @click="closeRecordSheet"><X :size="19" /></button></header>
+            <div class="import-mode-switch" role="tablist" aria-label="导入方式"><i :class="{ batch: importMethod === 'batch' }"></i><button type="button" role="tab" :aria-selected="importMethod === 'single'" :class="{ selected: importMethod === 'single' }" @click="importMethod = 'single'">单个导入</button><button type="button" role="tab" :aria-selected="importMethod === 'batch'" :class="{ selected: importMethod === 'batch' }" @click="importMethod = 'batch'">一键导入</button></div>
+            <Transition name="import-tool" mode="out-in">
+              <form v-if="importMethod === 'single'" key="single" class="import-single-tool" @submit.prevent="addSingleImportDraft"><Search :size="17" /><input v-model="importSingleTitle" type="search" placeholder="搜索或输入中文片名" aria-label="待导入中文片名" /><label><span>已观看</span><input v-model="importSingleWatched" type="checkbox" /><i></i></label><button type="submit">加入</button></form>
+              <div v-else key="batch" class="import-batch-tool"><input ref="importFileInput" class="import-file-input" type="file" accept=".txt,text/plain" @change="handleImportFile" /><button type="button" @click="importFileInput?.click()"><FileText :size="17" /><span><strong>选择 TXT 中文片单</strong><small>识别 [x] 已观看与 [ ] 未观看</small></span><Upload :size="15" /></button></div>
+            </Transition>
+            <section class="import-review">
+              <header><div><strong>待导入列表</strong><small>共 {{ importDraftWatched.length + importDraftUnwatched.length }} 部</small></div><button type="button" :disabled="!importDraftWatched.length && !importDraftUnwatched.length" @click="importCardsReversed = !importCardsReversed"><ArrowDownUp :size="14" />交换上下</button></header>
+              <div class="import-card-stack" :class="{ reversed: importCardsReversed }">
+                <section class="import-draft-card watched-card">
+                  <header><div><span></span><strong>已观看</strong></div><small>{{ importDraftWatched.length }} 部</small></header>
+                  <TransitionGroup name="import-row" tag="div" class="import-draft-list">
+                    <article v-for="item in importDraftWatched" :key="item.id"><div><Check :size="12" /><strong>{{ item.title }}</strong></div><span><button type="button" aria-label="移动到未观看" @click="moveImportDraft(item, true)"><ArrowDownUp :size="12" /></button><button type="button" aria-label="移除待导入条目" @click="removeImportDraft(item, true)"><Trash2 :size="12" /></button></span></article>
+                    <p v-if="!importDraftWatched.length" key="watched-empty">已观看片名会显示在这里</p>
+                  </TransitionGroup>
+                </section>
+                <section class="import-draft-card unwatched-card">
+                  <header><div><span></span><strong>未观看</strong></div><small>{{ importDraftUnwatched.length }} 部</small></header>
+                  <TransitionGroup name="import-row" tag="div" class="import-draft-list">
+                    <article v-for="item in importDraftUnwatched" :key="item.id"><div><span class="pending-dot"></span><strong>{{ item.title }}</strong></div><span><button type="button" aria-label="移动到已观看" @click="moveImportDraft(item, false)"><ArrowDownUp :size="12" /></button><button type="button" aria-label="移除待导入条目" @click="removeImportDraft(item, false)"><Trash2 :size="12" /></button></span></article>
+                    <p v-if="!importDraftUnwatched.length" key="unwatched-empty">未观看片名会显示在这里</p>
+                  </TransitionGroup>
+                </section>
+              </div>
+            </section>
+            <footer class="import-actions"><button type="button" :disabled="!importDraftWatched.length && !importDraftUnwatched.length" @click="clearImportDrafts">清空</button><button type="button" :disabled="!importDraftWatched.length && !importDraftUnwatched.length" @click="confirmImportDrafts"><Check :size="15" />确认导入 {{ importDraftWatched.length + importDraftUnwatched.length || '' }}</button></footer>
           </template>
         </div>
       </div>

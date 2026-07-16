@@ -10,7 +10,7 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.13.0'
+        classpath 'com.android.tools.build:gradle:9.3.0'
         classpath 'com.google.gms:google-services:4.4.4'
 
         // NOTE: Do not place your application dependencies here; they belong
@@ -19,6 +19,12 @@ buildscript {
 }
 
 apply from: "variables.gradle"
+
+def configureChinaRepositories = { RepositoryHandler repositories ->
+    repositories.maven { url 'https://maven.aliyun.com/repository/google' }
+    repositories.maven { url 'https://maven.aliyun.com/repository/public' }
+    repositories.maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
+}
 
 allprojects {
     repositories {
@@ -30,6 +36,14 @@ allprojects {
 }
 
 subprojects {
+    // Capacitor plugins define their own buildscript repositories with google()
+    // first. Inject mirrors before those scripts are evaluated so Android Studio
+    // sync does not block on dl.google.com in restricted networks.
+    beforeEvaluate { project ->
+        configureChinaRepositories(project.buildscript.repositories)
+        configureChinaRepositories(project.repositories)
+    }
+
     afterEvaluate { project ->
         if (project.hasProperty('android')) {
             project.android.buildToolsVersion = '36.0.0'
