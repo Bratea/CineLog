@@ -18,12 +18,14 @@ const dragState = ref<DragState | null>(null)
 const selectedChildId = ref('')
 const addOpen = ref(false)
 const parentAddInput = ref(null)
+const childViewport = ref<HTMLElement | null>(null)
 const page = ref(1)
 const pageSize = 10
 let holdTimer: number | undefined
 let pendingHold: PendingHold | null = null
 let lastReorderAt = 0
 let dragChanged = false
+let childResizeTimer: number | undefined
 
 const activeCategory = computed(() => props.categories.find((category) => category.id === activeId.value))
 const pageCount = computed(() => Math.max(1, Math.ceil((activeCategory.value?.children.length || 0) / pageSize)))
@@ -41,12 +43,31 @@ function commitCategories(categories, message = '分类顺序已自动保存') {
   emit('saved', message)
 }
 
+async function animateChildChange(change: () => void) {
+  const viewport = childViewport.value
+  const oldHeight = viewport?.getBoundingClientRect().height || 0
+  change()
+  await nextTick()
+  if (!viewport) return
+  const nextList = [...viewport.children].find((element) => !element.classList.contains('category-page-leave-active')) as HTMLElement | undefined
+  const nextHeight = nextList?.getBoundingClientRect().height || 0
+  if (!oldHeight || !nextHeight || Math.abs(oldHeight - nextHeight) < 1) return
+  window.clearTimeout(childResizeTimer)
+  viewport.style.height = `${oldHeight}px`
+  void viewport.offsetHeight
+  viewport.style.height = `${nextHeight}px`
+  const duration = props.motionIntensity === 'high' ? 560 : props.motionIntensity === 'medium' ? 380 : 220
+  childResizeTimer = window.setTimeout(() => { viewport.style.height = '' }, duration)
+}
+
 function setActive(id) {
-  if (!dragState.value) {
-    activeId.value = id
-    selectedChildId.value = ''
-    addOpen.value = false
-    page.value = 1
+  if (!dragState.value && activeId.value !== id) {
+    void animateChildChange(() => {
+      activeId.value = id
+      selectedChildId.value = ''
+      addOpen.value = false
+      page.value = 1
+    })
   }
 }
 
@@ -114,8 +135,12 @@ function moveChild(childId: string, direction: number) {
 }
 
 function changePage(nextPage) {
-  page.value = Math.min(pageCount.value, Math.max(1, nextPage))
-  selectedChildId.value = ''
+  const targetPage = Math.min(pageCount.value, Math.max(1, nextPage))
+  if (targetPage === page.value) return
+  void animateChildChange(() => {
+    page.value = targetPage
+    selectedChildId.value = ''
+  })
 }
 
 function startHold(event: PointerEvent, type: DragKind, id: string) {
@@ -140,6 +165,13 @@ function moveHold(event: PointerEvent) {
   const drag = dragState.value
   if (!drag) return
   event.preventDefault()
+  const scrollHost = drag.element.closest('.personal-settings') as HTMLElement | null
+  if (scrollHost) {
+    const rect = scrollHost.getBoundingClientRect()
+    const edge = Math.min(92, rect.height * .18)
+    if (event.clientY < rect.top + edge) scrollHost.scrollBy({ top: -12, behavior: 'auto' })
+    else if (event.clientY > rect.bottom - edge) scrollHost.scrollBy({ top: 12, behavior: 'auto' })
+  }
   const target = document.elementFromPoint(event.clientX, event.clientY)?.closest?.(`[data-drag-type="${drag.type}"]`) as HTMLElement | null
   const targetId = target?.dataset.dragId
   if (!targetId || targetId === drag.id) return
@@ -192,12 +224,13 @@ function cancelHold(event: PointerEvent) {
 
 onBeforeUnmount(() => {
   clearTimeout(holdTimer)
+  clearTimeout(childResizeTimer)
   document.body.classList.remove('category-drag-active')
 })
 </script>
 
 <template>
-  <div class="category-manager settings-piece" :class="{ 'is-dragging': dragState }" style="--settings-order: 1" @pointermove="moveHold" @pointerup="endHold" @pointercancel="endHold">
+  <div class="category-manager settings-piece" :class="[`motion-${motionIntensity || 'medium'}`, { 'is-dragging': dragState }]" style="--settings-order: 1" @pointermove="moveHold" @pointerup="endHold" @pointercancel="endHold">
     <div class="category-manager-intro">
       <strong>内容分类</strong>
       <span>点按切换，长按后拖动调整显示顺序</span>
@@ -238,26 +271,30 @@ onBeforeUnmount(() => {
         <div><strong>{{ activeCategory.label }}分类</strong><span>{{ activeCategory.children.length }} 个</span></div>
         <small>长按任意分类拖动</small>
       </header>
-      <TransitionGroup name="category-order" tag="div" class="category-child-list">
-        <div
-          v-for="(child, index) in paginatedChildren"
-          :key="child.id"
-          :style="{ '--move-delay-high': `${index * 54}ms`, '--move-delay-medium': `${index * 30}ms` }"
-          :data-drag-id="child.id"
-          data-drag-type="child"
-          :class="{ selected: selectedChildId === child.id, dragging: dragState?.type === 'child' && dragState?.id === child.id }"
-          @click="selectChild(child.id)"
-          @pointerdown="startHold($event, 'child', child.id)"
-          @pointermove="cancelHold"
-          @contextmenu.prevent
-        >
-          <GripVertical :size="16" />
-          <span>{{ child.label }}</span>
-          <small>{{ child.source === 'data' ? '来自影片数据' : child.source === 'custom' ? '自定义' : '默认' }}</small>
-          <span class="category-row-actions"><button type="button" :disabled="activeCategory.children.findIndex((item) => item.id === child.id) === 0" :aria-label="`${child.label}上移`" @pointerdown.stop @click.stop="moveChild(child.id, -1)"><ChevronUp :size="13" /></button><button type="button" :disabled="activeCategory.children.findIndex((item) => item.id === child.id) === activeCategory.children.length - 1" :aria-label="`${child.label}下移`" @pointerdown.stop @click.stop="moveChild(child.id, 1)"><ChevronDown :size="13" /></button></span>
-          <button v-if="child.source === 'custom'" :aria-label="`删除${child.label}`" @pointerdown.stop @click.stop="removeCategory(child.id)"><X :size="14" /></button>
-        </div>
-      </TransitionGroup>
+      <div ref="childViewport" class="category-child-viewport">
+        <Transition name="category-page">
+          <TransitionGroup :key="`${activeCategory.id}-${page}`" name="category-order" tag="div" class="category-child-list">
+            <div
+              v-for="(child, index) in paginatedChildren"
+              :key="child.id"
+              :style="{ '--move-delay-high': `${index * 54}ms`, '--move-delay-medium': `${index * 30}ms`, '--category-row': index }"
+              :data-drag-id="child.id"
+              data-drag-type="child"
+              :class="{ selected: selectedChildId === child.id, dragging: dragState?.type === 'child' && dragState?.id === child.id }"
+              @click="selectChild(child.id)"
+              @pointerdown="startHold($event, 'child', child.id)"
+              @pointermove="cancelHold"
+              @contextmenu.prevent
+            >
+              <GripVertical :size="16" />
+              <span>{{ child.label }}</span>
+              <small>{{ child.source === 'data' ? '来自影片数据' : child.source === 'custom' ? '自定义' : '默认' }}</small>
+              <span class="category-row-actions"><button type="button" :disabled="activeCategory.children.findIndex((item) => item.id === child.id) === 0" :aria-label="`${child.label}上移`" @pointerdown.stop @click.stop="moveChild(child.id, -1)"><ChevronUp :size="13" /></button><button type="button" :disabled="activeCategory.children.findIndex((item) => item.id === child.id) === activeCategory.children.length - 1" :aria-label="`${child.label}下移`" @pointerdown.stop @click.stop="moveChild(child.id, 1)"><ChevronDown :size="13" /></button></span>
+              <button v-if="child.source === 'custom'" :aria-label="`删除${child.label}`" @pointerdown.stop @click.stop="removeCategory(child.id)"><X :size="14" /></button>
+            </div>
+          </TransitionGroup>
+        </Transition>
+      </div>
 
       <nav class="category-pagination" :aria-label="`${activeCategory.label}分类分页`">
         <button type="button" aria-label="上一页" :disabled="page <= 1" @click="changePage(page - 1)"><ChevronLeft :size="15" /></button>

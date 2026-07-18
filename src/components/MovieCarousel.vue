@@ -24,7 +24,6 @@ const dragAxis = ref(null)
 const isDragging = ref(false)
 const isOpeningDetail = ref(false)
 const isReturning = ref(false)
-const dragVelocityY = ref(0)
 const swipeStartX = ref(null)
 const swipeX = ref(0)
 const swipeMax = ref(0)
@@ -37,6 +36,10 @@ let returnTimer
 let swipeArmTimer
 let lastDragY = 0
 let lastDragTime = 0
+let dragVelocityY = 0
+let dragFrame = 0
+let latestDragX = 0
+let latestDragY = 0
 
 let renderer
 let scene
@@ -76,7 +79,9 @@ function pointerDown(event) {
   dragStart.value = { x: event.clientX, y: event.clientY }
   dragX.value = 0
   dragY.value = 0
-  dragVelocityY.value = 0
+  latestDragX = 0
+  latestDragY = 0
+  dragVelocityY = 0
   dragAxis.value = null
   isDragging.value = true
   lastDragY = event.clientY
@@ -91,7 +96,7 @@ function pointerMove(event) {
   const now = event.timeStamp || performance.now()
   const elapsed = Math.max(8, now - lastDragTime)
   const instantVelocityY = (event.clientY - lastDragY) / elapsed
-  dragVelocityY.value = dragVelocityY.value * .68 + instantVelocityY * .32
+  dragVelocityY = dragVelocityY * .68 + instantVelocityY * .32
   lastDragY = event.clientY
   lastDragTime = now
   if (!dragAxis.value && Math.hypot(deltaX, deltaY) > 7) {
@@ -101,24 +106,30 @@ function pointerMove(event) {
   if (dragAxis.value === 'vertical') {
     const upwardDistance = Math.max(0, -deltaY)
     const resistedUpward = upwardDistance <= 92 ? upwardDistance : 92 + (upwardDistance - 92) * .34
-    dragY.value = deltaY < 0 ? -Math.min(132, resistedUpward) : Math.min(20, deltaY * .38)
+    latestDragY = deltaY < 0 ? -Math.min(132, resistedUpward) : Math.min(20, deltaY * .38)
+    scheduleDragPosition()
   } else if (dragAxis.value === 'horizontal') {
-    dragX.value = Math.max(-110, Math.min(110, deltaX))
+    latestDragX = Math.max(-110, Math.min(110, deltaX))
+    scheduleDragPosition()
   }
 }
 
 function pointerUp() {
   if (dragStart.value === null) return
-  const shouldOpenDetail = dragAxis.value === 'vertical' && (dragY.value < -58 || (dragY.value < -40 && dragVelocityY.value < -.72))
+  if (dragFrame) {
+    window.cancelAnimationFrame(dragFrame)
+    commitDragPosition()
+  }
+  const shouldOpenDetail = dragAxis.value === 'vertical' && (latestDragY < -58 || (latestDragY < -40 && dragVelocityY < -.72))
   let horizontalSettle = null
   if (shouldOpenDetail) {
     beginDetailOpen(activeMovie.value)
-  } else if (dragAxis.value === 'horizontal' && Math.abs(dragX.value) > 46) {
-    const direction = dragX.value > 0 ? -1 : 1
-    horizontalSettle = dragX.value + direction * 300
+  } else if (dragAxis.value === 'horizontal' && Math.abs(latestDragX) > 46) {
+    const direction = latestDragX > 0 ? -1 : 1
+    horizontalSettle = latestDragX + direction * 300
     move(direction)
     dragX.value = horizontalSettle
-  } else if (dragAxis.value === 'vertical' && dragY.value !== 0) {
+  } else if (dragAxis.value === 'vertical' && latestDragY !== 0) {
     isReturning.value = true
     window.clearTimeout(returnTimer)
     returnTimer = window.setTimeout(() => { isReturning.value = false }, 640)
@@ -126,7 +137,9 @@ function pointerUp() {
 
   dragStart.value = null
   if (!isOpeningDetail.value) dragY.value = 0
-  dragVelocityY.value = 0
+  latestDragX = 0
+  latestDragY = isOpeningDetail.value ? latestDragY : 0
+  dragVelocityY = 0
   dragAxis.value = null
   isDragging.value = false
   if (horizontalSettle !== null) {
@@ -139,21 +152,36 @@ function pointerUp() {
 function beginDetailOpen(movie) {
   if (!movie || isOpeningDetail.value) return
   isOpeningDetail.value = true
-  dragY.value = -detailMotion.value.distance
+  latestDragY = -detailMotion.value.distance
+  dragY.value = latestDragY
   startGlow()
   openTimer = window.setTimeout(() => emit('open-detail', movie), detailMotion.value.duration)
+}
+
+function commitDragPosition() {
+  dragFrame = 0
+  dragX.value = latestDragX
+  dragY.value = latestDragY
+}
+
+function scheduleDragPosition() {
+  if (!dragFrame) dragFrame = window.requestAnimationFrame(commitDragPosition)
 }
 
 function resetOpenState() {
   window.clearTimeout(openTimer)
   window.clearTimeout(returnTimer)
   cancelAnimationFrame(frame)
+  cancelAnimationFrame(dragFrame)
+  dragFrame = 0
   isOpeningDetail.value = false
   isReturning.value = false
   dragStart.value = null
   dragX.value = 0
   dragY.value = 0
-  dragVelocityY.value = 0
+  latestDragX = 0
+  latestDragY = 0
+  dragVelocityY = 0
   dragAxis.value = null
   isDragging.value = false
 }
@@ -322,6 +350,7 @@ onBeforeUnmount(() => {
   window.clearTimeout(returnTimer)
   window.clearTimeout(swipeArmTimer)
   cancelAnimationFrame(frame)
+  cancelAnimationFrame(dragFrame)
   resizeObserver?.disconnect()
   material?.dispose()
   renderer?.dispose()
@@ -479,6 +508,10 @@ onBeforeUnmount(() => {
 @keyframes success-ring { to { stroke-dashoffset: 0; } }
 @keyframes success-check { to { stroke-dashoffset: 0; } }
 @keyframes pull-hint { 0%,100% { transform: translateY(2px); } 50% { transform: translateY(-2px); } }
+.watch-slider.armed { color:#ffe8a7; border-color:rgba(255,210,105,.36); background:rgba(66,51,23,.64); box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 0 20px rgba(255,195,67,.12); }
+.watch-slider.armed::before { background:linear-gradient(90deg,rgba(255,198,73,.3),rgba(255,198,73,.06)); }
+.watch-slider.armed .watch-slider__handle { color:#4b3510; background:linear-gradient(145deg,#ffe9a8,#edbd50); }
+:global(.native-app) .album-card{filter:none;transition:transform .4s cubic-bezier(.2,.8,.2,1),opacity .28s ease,border-radius .28s ease,box-shadow .28s ease;will-change:auto}:global(.native-app) .deck.dragging .album-card{will-change:transform}:global(.native-app) .three-glow{display:none}:global(.native-app) .motion-high.opening-detail .album-card.active-card,:global(.native-app) .motion-high.opening-detail .poster-image{animation-duration:.42s}:global(.native-app) .motion-high.opening-detail .album-card:not(.active-card){transition-duration:.4s,.26s}:global(.native-app) .motion-high.opening-detail .album-info{animation-duration:.32s}:global(.native-app) .motion-medium.opening-detail .album-card.active-card,:global(.native-app) .motion-medium.opening-detail .poster-image{animation-duration:.34s}
 @media (prefers-reduced-motion: reduce) { .album-card, .dots i { transition: none; } }
 @media (max-height: 760px) {
   .album { top: 8px; }
@@ -514,6 +547,3 @@ onBeforeUnmount(() => {
   .deck-footer { min-height: 20px; }
 }
 </style>
-.watch-slider.armed { color:#ffe8a7; border-color:rgba(255,210,105,.36); background:rgba(66,51,23,.64); box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 0 20px rgba(255,195,67,.12); }
-.watch-slider.armed::before { background:linear-gradient(90deg,rgba(255,198,73,.3),rgba(255,198,73,.06)); }
-.watch-slider.armed .watch-slider__handle { color:#4b3510; background:linear-gradient(145deg,#ffe9a8,#edbd50); }

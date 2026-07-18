@@ -9,6 +9,7 @@ const props = defineProps({
   motion: { type: String, default: 'medium' },
   duration: { type: Number, default: 2600 },
   closable: { type: Boolean, default: false },
+  stackIndex: { type: Number, default: 0 },
 })
 defineEmits(['close'])
 
@@ -19,7 +20,7 @@ const icons = { success: Check, warning: TriangleAlert, info: Info }
   <aside
     class="app-notice"
     :class="[`is-${tone}`, `app-notice--${placement}`, `app-notice--motion-${motion}`]"
-    :style="{ '--notice-duration': `${duration}ms` }"
+    :style="{ '--notice-duration': `${duration}ms`, '--notice-stack-index': stackIndex, zIndex: 145 - stackIndex }"
     role="status"
     aria-live="polite"
   >
@@ -31,7 +32,7 @@ const icons = { success: Check, warning: TriangleAlert, info: Info }
 
 <style scoped>
 @property --notice-progress { syntax:'<number>'; inherits:false; initial-value:0; }
-.app-notice{--notice-color:#4b9a70;position:fixed;z-index:145;isolation:isolate;display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:9px;min-height:62px;padding:9px 9px 9px 10px;box-sizing:border-box;border:1px solid color-mix(in srgb,var(--notice-color) 24%,transparent);border-radius:16px;background:rgba(255,255,255,.96);box-shadow:0 15px 35px rgba(20,26,24,.2);backdrop-filter:blur(20px) saturate(1.25)}
+.app-notice{--notice-color:#4b9a70;position:absolute;z-index:145;isolation:isolate;display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:9px;min-height:62px;margin-top:calc(var(--notice-stack-index,0) * 13px);padding:9px 9px 9px 10px;box-sizing:border-box;border:1px solid color-mix(in srgb,var(--notice-color) 24%,transparent);border-radius:16px;background:rgba(255,255,255,.96);box-shadow:0 15px 35px rgba(20,26,24,.2);backdrop-filter:blur(20px) saturate(1.25);pointer-events:auto}
 .app-notice::before{content:'';position:absolute;z-index:2;inset:-1px;padding:2px;border-radius:inherit;background:conic-gradient(from -90deg,var(--notice-color) calc(var(--notice-progress) * 1turn),rgba(210,214,217,.3) 0);pointer-events:none;-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:notice-progress var(--notice-duration) linear forwards}
 .app-notice.is-warning{--notice-color:#d29b34}.app-notice.is-info{--notice-color:#5a89bd}
 .app-notice--library,.app-notice--home{top:max(72px,calc(env(safe-area-inset-top) + 58px));right:max(12px,env(safe-area-inset-right));width:210px}.app-notice--record{top:max(76px,calc(env(safe-area-inset-top) + 62px));right:max(12px,env(safe-area-inset-right));width:min(230px,calc(100vw - 24px))}.app-notice--settings{top:max(72px,calc(env(safe-area-inset-top) + 58px));right:max(10px,env(safe-area-inset-right));width:210px}.app-notice--detail{top:max(82px,calc(env(safe-area-inset-top) + 66px));right:max(10px,env(safe-area-inset-right));width:230px;color:#fff;background:rgba(18,23,24,.9);border-color:color-mix(in srgb,var(--notice-color) 45%,rgba(255,255,255,.15));box-shadow:0 18px 38px rgba(0,0,0,.32)}
@@ -39,7 +40,7 @@ const icons = { success: Check, warning: TriangleAlert, info: Info }
 .app-notice__copy{min-width:0;display:grid;gap:3px}.app-notice strong{color:#272a2d;font-size:10px}.app-notice p{overflow:hidden;margin:0;color:#7e8186;font-size:8px;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}.app-notice--detail strong{color:#fff8ef}.app-notice--detail p{color:rgba(255,255,255,.6)}
 .app-notice__close{display:grid;place-items:center;width:24px;height:24px;padding:0;color:#91949a;border:0;background:transparent}.app-notice--detail .app-notice__close{color:rgba(255,255,255,.58)}
 .app-notice--motion-high{transform-origin:86% -24px;animation:notice-gravity-drop .72s cubic-bezier(.16,1,.3,1) both}.app-notice--motion-medium{animation:notice-side-in .48s cubic-bezier(.16,1,.3,1) both}.app-notice--motion-low{animation:notice-low-in .2s ease-out both}
-.app-notice::after{content:'';position:absolute;z-index:-1;inset:5px 6px -7px 10px;border:1px solid color-mix(in srgb,var(--notice-color) 14%,transparent);border-radius:inherit;background:rgba(255,255,255,.84);box-shadow:5px 7px 0 -1px rgba(255,255,255,.68),10px 14px 0 -2px rgba(255,255,255,.48);pointer-events:none}.app-notice--motion-high::after{box-shadow:5px 7px 0 -1px rgba(255,255,255,.78),10px 14px 0 -2px rgba(255,255,255,.64),15px 21px 0 -3px rgba(255,255,255,.48),20px 28px 0 -4px rgba(255,255,255,.32)}.app-notice--detail::after{background:rgba(18,23,24,.76);box-shadow:5px 7px 0 -1px rgba(18,23,24,.62),10px 14px 0 -2px rgba(18,23,24,.44)}.app-notice--detail.app-notice--motion-high::after{box-shadow:5px 7px 0 -1px rgba(18,23,24,.72),10px 14px 0 -2px rgba(18,23,24,.58),15px 21px 0 -3px rgba(18,23,24,.42),20px 28px 0 -4px rgba(18,23,24,.28)}
+.notice-stack-move{transition:margin-top .28s cubic-bezier(.16,1,.3,1)}
 .app-notice--motion-high:is(.record-notice-leave-active,.library-notice-leave-active,.settings-notice-leave-active){animation:none;transition:opacity .26s ease,transform .32s cubic-bezier(.4,0,1,1),filter .26s ease}.app-notice--motion-high:is(.record-notice-leave-to,.library-notice-leave-to,.settings-notice-leave-to){opacity:0;filter:blur(1px);transform:translate3d(8px,-12px,0) scale(.97)}.app-notice--motion-medium:is(.record-notice-leave-active,.library-notice-leave-active,.settings-notice-leave-active){animation:none;transition:opacity .22s ease,transform .28s ease}.app-notice--motion-medium:is(.record-notice-leave-to,.library-notice-leave-to,.settings-notice-leave-to){opacity:0;transform:translateX(18px) scale(.98)}.app-notice--motion-low:is(.record-notice-leave-active,.library-notice-leave-active,.settings-notice-leave-active),.app-notice--motion-low:is(.record-notice-leave-to,.library-notice-leave-to,.settings-notice-leave-to){animation:none;transition:none}
 @keyframes notice-gravity-drop{0%{opacity:0;transform:translate3d(24px,-76px,0) rotate(4deg) scale(.88);filter:blur(3px)}58%{opacity:1;transform:translate3d(-5px,7px,0) rotate(-.8deg) scale(1.025);filter:blur(0)}78%{transform:translate3d(2px,-2px,0) rotate(.25deg) scale(.995)}100%{opacity:1;transform:none;filter:blur(0)}}@keyframes notice-side-in{from{opacity:0;transform:translate3d(38px,0,0) scale(.96)}to{opacity:1;transform:none}}@keyframes notice-low-in{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}@keyframes notice-progress{from{--notice-progress:0}to{--notice-progress:1}}
 @media(prefers-reduced-motion:reduce){.app-notice,.app-notice::before{animation:none}}

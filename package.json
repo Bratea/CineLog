@@ -15,6 +15,7 @@
   "dependencies": {
     "@capacitor-community/sqlite": "8.1.0",
     "@capacitor/android": "8.4.2",
+    "@capacitor/app": "^8.1.1",
     "@capacitor/core": "8.4.2",
     "lucide-vue-next": "^0.577.0",
     "motion-v": "^2.3.0",

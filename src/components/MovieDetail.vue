@@ -19,7 +19,7 @@ import {
   X,
 } from 'lucide-vue-next'
 import cinematicAnimeCollage from '../assets/cinematic-anime-collage.png'
-import AppNotice from './AppNotice.vue'
+import NoticeStack from './NoticeStack.vue'
 import ImageViewer from './ImageViewer.vue'
 import DatePickerDialog from './DatePickerDialog.vue'
 import PersonDetailModal from './PersonDetailModal.vue'
@@ -57,14 +57,16 @@ const ratingBurstKey = ref(0)
 const detailScroll = ref(null)
 const detailRoot = ref(null)
 const viewerImage = ref(null)
-const detailNotice = ref(null)
+type DetailNotice = { id: number; title: string; message?: string; tone?: string }
+const detailNotices = ref<DetailNotice[]>([])
 const selectedPerson = ref(null)
 
 let switchTimer
 let backTimer
 let burstTimer
 let revealObserver
-let detailNoticeTimer
+let detailNoticeSequence = 0
+const detailNoticeTimers = new Map<number, number>()
 let scrollFrame = 0
 let swipeFrame = 0
 let pendingScrollProgress = 0
@@ -197,33 +199,58 @@ function setWatched(value) {
   emit('update-watched', value)
 }
 
+function dismissDetailNotice(id: number) {
+  const index = detailNotices.value.findIndex((notice) => notice.id === id)
+  if (index >= 0) detailNotices.value.splice(index, 1)
+  const timer = detailNoticeTimers.get(id)
+  if (timer) window.clearTimeout(timer)
+  detailNoticeTimers.delete(id)
+}
+
+function clearDetailNotices() {
+  detailNoticeTimers.forEach((timer) => window.clearTimeout(timer))
+  detailNoticeTimers.clear()
+  detailNotices.value = []
+}
+
+function pushDetailNotice(notice: Omit<DetailNotice, 'id'>, duration = 2400) {
+  const item = { ...notice, id: ++detailNoticeSequence }
+  const limit = props.motionIntensity === 'high' ? 5 : 3
+  detailNotices.value = [item, ...detailNotices.value].slice(0, limit)
+  const timer = window.setTimeout(() => dismissDetailNotice(item.id), duration)
+  detailNoticeTimers.set(item.id, timer)
+}
+
 function toggleWatched() {
   const watched = !props.movie.watched
   setWatched(watched)
-  window.clearTimeout(detailNoticeTimer)
-  detailNotice.value = {
+  pushDetailNotice({
     title: watched ? '已设为已观看' : '已设为未观看',
     message: `《${props.movie.title}》的观看状态已更新`,
-  }
-  detailNoticeTimer = window.setTimeout(() => { detailNotice.value = null }, 2600)
+    tone: 'success',
+  }, 2600)
 }
 
 function toggleLiked() {
   liked.value = !liked.value
   props.movie.favourite = liked.value
-  detailNotice.value = { title: liked.value ? '已加入我的喜欢' : '已取消喜欢', message: `《${props.movie.title}》已更新` }
-  window.clearTimeout(detailNoticeTimer)
-  detailNoticeTimer = window.setTimeout(() => { detailNotice.value = null }, 2200)
+  pushDetailNotice({ title: liked.value ? '已加入我的喜欢' : '已取消喜欢', message: `《${props.movie.title}》已更新`, tone: 'success' }, 2200)
 }
 
 function openImage(src, title, fit = 'contain', images = [], initialIndex = 0) {
   if (!src) return
-  detailNotice.value = null
+  clearDetailNotices()
   viewerImage.value = { src, title, alt: title, fit, images, initialIndex }
 }
 
-const posterViewerImages = computed(() => (props.movie.posters || []).map((poster, index) => ({ src: imageUrl(poster.file_path), title: `${props.movie.title} · 海报 ${String(index + 1).padStart(2, '0')}`, alt: `${props.movie.title}海报${index + 1}`, fit: 'contain' })))
+const posterViewerPaths = computed(() => {
+  const hero = props.movie.posterUrl || props.movie.poster_path
+  const supplied = (props.movie.posters || []).map((poster) => typeof poster === 'string' ? poster : poster?.file_path).filter(Boolean)
+  return [...new Set([hero, ...supplied].filter(Boolean))]
+})
+const posterViewerImages = computed(() => posterViewerPaths.value.map((path, index) => ({ src: imageUrl(path), title: `${props.movie.title} · 海报 ${String(index + 1).padStart(2, '0')}`, alt: `${props.movie.title}海报${index + 1}`, fit: 'contain' })))
 const stillViewerImages = computed(() => movieStills.value.map((still, index) => ({ src: imageUrl(still), title: `${props.movie.title} · 剧照 ${String(index + 1).padStart(2, '0')}`, alt: `${props.movie.title}剧照${index + 1}`, fit: 'contain' })))
+const posterViewerIndex = (path) => Math.max(0, posterViewerPaths.value.indexOf(path))
 
 function openRecordEditor() {
   draftRating.value = personalScore.value || 0
@@ -372,8 +399,7 @@ watch(() => props.movie.id, async () => {
   viewerImage.value = null
   selectedPerson.value = null
   recordDatePickerOpen.value = false
-  detailNotice.value = null
-  window.clearTimeout(detailNoticeTimer)
+  clearDetailNotices()
   editOpen.value = false
   liked.value = Boolean(props.movie.favourite)
   setScrollProgress(0, true)
@@ -398,7 +424,7 @@ onBeforeUnmount(() => {
   window.clearTimeout(switchTimer)
   window.clearTimeout(backTimer)
   window.clearTimeout(burstTimer)
-  window.clearTimeout(detailNoticeTimer)
+  clearDetailNotices()
   window.cancelAnimationFrame(scrollFrame)
   window.cancelAnimationFrame(swipeFrame)
   revealObserver?.disconnect()
@@ -422,11 +448,11 @@ onBeforeUnmount(() => {
       <div class="detail-fixed-title"><strong>{{ movie.title }}</strong><small v-if="allowPageSwipe">网页端可左右滑动切换</small></div>
       <button :class="{ active: liked }" aria-label="收藏" @click="toggleLiked"><Heart :size="20" :fill="liked ? 'currentColor' : 'none'" /></button>
     </header>
-    <AppNotice v-if="detailNotice" :key="detailNotice.title" :title="detailNotice.title" :message="detailNotice.message" placement="detail" :motion="motionIntensity" :duration="2600" closable @close="detailNotice = null" />
+    <NoticeStack :notices="detailNotices" placement="detail" :motion="motionIntensity" :duration="2600" closable @dismiss="dismissDetailNotice" />
 
     <div ref="detailScroll" class="detail-scroll" @scroll.passive="handleScroll">
       <section :key="`hero-${movie.id}`" class="detail-hero-copy">
-        <button v-if="heroPosterUrl" class="detail-cover-card" :aria-label="`放大查看${movie.title}电影封面`" @click="openImage(imageUrl(movie.posterUrl || movie.poster_path), `${movie.title}电影封面`)">
+        <button v-if="heroPosterUrl" class="detail-cover-card" :aria-label="`放大查看${movie.title}电影封面`" @click="openImage(imageUrl(movie.posterUrl || movie.poster_path), `${movie.title}电影封面`, 'contain', posterViewerImages, posterViewerIndex(movie.posterUrl || movie.poster_path))">
           <img :src="heroPosterUrl" :alt="`${movie.title}电影封面`" />
         </button>
         <p class="detail-original">{{ movie.originalTitle }}</p>
@@ -542,7 +568,7 @@ onBeforeUnmount(() => {
 
         <section v-if="isModuleVisible('posters') && movie.posters?.length" class="detail-panel posters-panel detail-module reveal-section" :style="{ order: moduleOrder('posters') }">
           <div class="section-heading"><h2>海报画廊</h2><small>点击放大</small></div>
-          <div class="poster-rail"><button v-for="(poster, index) in movie.posters" :key="poster.file_path" :aria-label="`放大查看第 ${Number(index) + 1} 张电影海报`" @click="openImage(imageUrl(poster.file_path), `${movie.title} · 海报 ${String(Number(index) + 1).padStart(2, '0')}`, 'contain', posterViewerImages, Number(index))"><img :src="imageUrl(poster.file_path, 'w342')" :alt="`${movie.title}海报${Number(index) + 1}`" /><span>{{ poster.language?.toUpperCase() || 'ART' }}</span></button></div>
+          <div class="poster-rail"><button v-for="(poster, index) in movie.posters" :key="poster.file_path" :aria-label="`放大查看第 ${Number(index) + 1} 张电影海报`" @click="openImage(imageUrl(poster.file_path), `${movie.title} · 海报 ${String(Number(index) + 1).padStart(2, '0')}`, 'contain', posterViewerImages, posterViewerIndex(poster.file_path))"><img :src="imageUrl(poster.file_path, 'w342')" :alt="`${movie.title}海报${Number(index) + 1}`" /><span>{{ poster.language?.toUpperCase() || 'ART' }}</span></button></div>
         </section>
 
         <section v-if="isModuleVisible('collection') && movie.collection?.parts?.length" class="detail-panel collection-panel detail-module reveal-section" :style="{ order: moduleOrder('collection') }">
@@ -748,4 +774,6 @@ onBeforeUnmount(() => {
 @keyframes detail-gravity-list{0%{opacity:.78;transform:translate3d(-34px,10px,0) scale(.986)}62%{opacity:1;transform:translate3d(4px,-1px,0) scale(1.002)}100%{opacity:1;transform:translate3d(0,0,0) scale(1)}}
 @keyframes backdrop-open{from{transform:scale(1.17) translate3d(0,-16px,0)}to{transform:scale(calc(1.045 + var(--scroll) * .065)) translate3d(0,calc(var(--scroll) * -12px),0)}}
 .detail-fixed-title{display:grid;min-width:0;max-width:210px;padding:6px 10px;border:1px solid rgba(255,255,255,.13);border-radius:13px;background:rgba(13,16,18,.32);backdrop-filter:blur(14px);text-align:center}.detail-fixed-title strong{overflow:hidden;color:#fff8ef;font-size:10px;text-overflow:ellipsis;white-space:nowrap}.detail-fixed-title small{margin-top:2px;color:rgba(255,247,239,.5);font-size:6px}.detail-neighbour{position:absolute;display:flex;align-items:center;gap:3px;height:30px;padding:0 9px;color:rgba(255,255,255,.74);border:1px solid rgba(255,255,255,.12);border-radius:11px;background:rgba(23,24,27,.92);font-size:7px;font-weight:800;pointer-events:auto}.detail-neighbour--previous{bottom:64px;left:0;border-radius:0 11px 11px 0}.detail-neighbour--next{right:0;bottom:64px;border-radius:11px 0 0 11px}.detail-neighbour:active{transform:scale(.94)}.movie-detail.motion-high .record-editor-enter-active .record-editor-sheet>*{animation:none}.movie-detail.motion-high .record-editor-enter-active .record-editor-sheet{animation-duration:.38s}.movie-detail.motion-high .record-editor-backdrop{backdrop-filter:blur(4px)}
+:global(.native-app) .movie-detail.motion-high{animation:detail-native-high-in .4s cubic-bezier(.2,.8,.2,1) both}:global(.native-app) .movie-detail.motion-high.is-returning,:global(.native-app) .movie-detail.motion-high.entry-list.is-returning{animation:detail-native-high-out .32s ease-in both!important}:global(.native-app) .movie-detail.has-swipe-transition :is(.detail-backdrop,.detail-topbar,.detail-scroll){transition:none}:global(.native-app) .movie-detail.motion-high .detail-topbar,:global(.native-app) .movie-detail.motion-high .detail-dock{animation-duration:.4s;animation-delay:0s}:global(.native-app) .movie-detail.motion-high .record-editor-backdrop{backdrop-filter:none}:global(.native-app) .detail-fixed-title{backdrop-filter:none;background:rgba(13,16,18,.78)}
+@keyframes detail-native-high-in{from{opacity:.72;transform:translate3d(18px,8px,0) scale(.992)}to{opacity:1;transform:none}}@keyframes detail-native-high-out{from{opacity:1;transform:none}to{opacity:0;transform:translate3d(0,20px,0) scale(.985)}}
 </style>

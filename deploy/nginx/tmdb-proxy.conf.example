@@ -1,0 +1,51 @@
+# Replace tmdb.example.com and the certificate paths before enabling this file.
+# App settings:
+#   API:   https://tmdb.example.com/tmdb-api
+#   Image: https://tmdb.example.com/tmdb-image
+
+limit_req_zone $binary_remote_addr zone=tmdb_per_ip:10m rate=10r/s;
+
+server {
+    listen 80;
+    server_name tmdb.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name tmdb.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/tmdb.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/tmdb.example.com/privkey.pem;
+
+    # Avoid writing TMDB API keys from query strings into access logs.
+    access_log off;
+
+    add_header Access-Control-Allow-Origin "*" always;
+    add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+    add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
+
+    if ($request_method = OPTIONS) {
+        return 204;
+    }
+
+    location /tmdb-api/ {
+        limit_req zone=tmdb_per_ip burst=20 nodelay;
+        proxy_ssl_server_name on;
+        proxy_ssl_name api.themoviedb.org;
+        proxy_set_header Host api.themoviedb.org;
+        proxy_pass https://api.themoviedb.org/3/;
+        proxy_connect_timeout 10s;
+        proxy_read_timeout 30s;
+    }
+
+    location /tmdb-image/ {
+        limit_req zone=tmdb_per_ip burst=40 nodelay;
+        proxy_ssl_server_name on;
+        proxy_ssl_name image.tmdb.org;
+        proxy_set_header Host image.tmdb.org;
+        proxy_pass https://image.tmdb.org/t/p/;
+        proxy_connect_timeout 10s;
+        proxy_read_timeout 30s;
+    }
+}

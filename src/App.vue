@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
 import type { HttpResponse } from '@capacitor/core'
@@ -7,7 +7,7 @@ import { ArrowDownUp, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRigh
 import MovieCarousel from './components/MovieCarousel.vue'
 import MovieList from './components/MovieList.vue'
 import MovieDetail from './components/MovieDetail.vue'
-import AppNotice from './components/AppNotice.vue'
+import NoticeStack from './components/NoticeStack.vue'
 import DatePickerDialog from './components/DatePickerDialog.vue'
 import CategorySettings from './components/CategorySettings.vue'
 import DetailLayoutSettings from './components/DetailLayoutSettings.vue'
@@ -172,8 +172,6 @@ const profileColorPresets = ['#ffffff', '#e9f1ff', '#eee5f7', '#dff2e7', '#1d1e2
 const tmdbToken = ref(localStorage.getItem('movie-tmdb-token') || '')
 const tmdbApiBase = ref('https://api.themoviedb.org/3')
 const tmdbImageBase = ref('https://image.tmdb.org/t/p')
-type TmdbNetworkMode = 'official' | 'custom'
-const tmdbNetworkMode = ref<TmdbNetworkMode>('official')
 localStorage.setItem('movie-tmdb-network-mode', 'official')
 const tmdbEndpointRefreshState = ref('idle')
 const tmdbTestState = ref('idle')
@@ -208,10 +206,25 @@ const addDatePickerOpen = ref(false)
 const addRating = ref(0)
 const addReview = ref('')
 const overviewExpanded = ref(false)
-const recordNotice = ref(null)
-const libraryNotice = ref(null)
-const homeNotice = ref(null)
-const settingsNotice = ref(null)
+type NoticeItem = { id: number; title: string; message?: string; tone?: string; type?: string }
+const recordNotices = ref<NoticeItem[]>([])
+const libraryNotices = ref<NoticeItem[]>([])
+const homeNotices = ref<NoticeItem[]>([])
+const settingsNotices = ref<NoticeItem[]>([])
+let noticeSequence = 0
+
+function dismissNotice(queue: NoticeItem[], id: number) {
+  const index = queue.findIndex((notice) => notice.id === id)
+  if (index >= 0) queue.splice(index, 1)
+}
+
+function pushNotice(queue: Ref<NoticeItem[]>, notice: Omit<NoticeItem, 'id'>, duration: number) {
+  const item = { ...notice, id: ++noticeSequence }
+  const limit = motionIntensity.value === 'high' ? 5 : 3
+  queue.value = [item, ...queue.value].slice(0, limit)
+  window.setTimeout(() => dismissNotice(queue.value, item.id), duration)
+  return item.id
+}
 const recordClosing = ref(false)
 const libraryWatchFilter = ref('all')
 const librarySortBy = ref(localStorage.getItem('movie-library-sort') || 'release')
@@ -424,13 +437,10 @@ function syncMovieCategoriesFromRecords(records = movieRecords.value) {
 }
 
 let watchConfirmTimer
-let recordNoticeTimer
-let libraryNoticeTimer
-let homeNoticeTimer
-let settingsNoticeTimer
 let settingsAutoInputTimer
 
 const watchedCount = computed(() => movieRecords.value.filter((movie) => movie.watched).length)
+const favouriteCount = computed(() => movieRecords.value.filter((movie) => movie.favourite).length)
 const displayedTmdbResults = computed(() => tmdbResults.value.slice(0, tmdbVisibleCount.value))
 const addWatchedDateLabel = computed(() => addWatchedDate.value ? addWatchedDate.value.replaceAll('-', ' / ') : '选择日期')
 const avatarUrlInput = computed({
@@ -484,10 +494,14 @@ const periodLabel = computed(() => ({ year: `${selectedYear.value} 年`, month: 
 const watchedSubtitle = computed(() => `按${({ year: '年', month: '月', day: '日' })[statPeriod.value]}整理 · 共 ${filteredMovies.value.length} 部`)
 const displayedMovies = computed(() => filteredMovies.value.slice(0, homeDisplayLimit.value))
 const surfaceTransitionName = computed(() => transitionDirection.value === 'forward' ? 'surface-forward' : 'surface-back')
-const surfaceTransitionDuration = computed(() => ({ high: 720, medium: 480, low: 260 })[motionIntensity.value])
+const surfaceTransitionDuration = computed(() => ({ high: 540, medium: 480, low: 260 })[motionIntensity.value])
 const settingsTransitionName = computed(() => settingsDirection.value === 'forward' ? 'settings-forward' : 'settings-back')
 const surfacePage = computed(() => currentPage.value === 'detail' ? detailOrigin.value : currentPage.value)
 const libraryYears = computed(() => [...new Set(movieRecords.value.map((movie) => movie.year))].sort().reverse())
+const libraryYearOptions = computed(() => {
+  const currentYear = new Date().getFullYear()
+  return Array.from({ length: 5 }, (_, index) => currentYear - 2 + index)
+})
 const libraryMediaTypes = computed(() => categorySettings.value.map((category) => category.label))
 const libraryGenres = computed(() => categorySettings.value.find((category) => category.label === libraryMediaType.value)?.children?.map((child) => child.label) || [])
 const visibleLibraryGenres = computed(() => ['all', ...libraryGenres.value].slice(0, Math.max(1, libraryTagLimit.value)))
@@ -540,13 +554,10 @@ watch([username, avatarUrl, profileBackgroundColor, avatarRingColor], () => {
 watch(tmdbToken, (value) => localStorage.setItem('movie-tmdb-token', value.trim()))
 watch(tmdbApiBase, (value) => {
   localStorage.setItem('movie-tmdb-api-base', value.trim())
-  if (tmdbNetworkMode.value === 'custom') localStorage.setItem('movie-tmdb-custom-api-base', value.trim())
 })
 watch(tmdbImageBase, (value) => {
   localStorage.setItem('movie-tmdb-image-base', value.trim())
-  if (tmdbNetworkMode.value === 'custom') localStorage.setItem('movie-tmdb-custom-image-base', value.trim())
 })
-watch(tmdbNetworkMode, (value) => localStorage.setItem('movie-tmdb-network-mode', value))
 watch(libraryTagLimit, (value) => localStorage.setItem('movie-library-tag-limit', String(value)))
 watch(libraryControlsSide, (value) => localStorage.setItem('movie-library-controls-side', value))
 watch(librarySortBy, (value) => localStorage.setItem('movie-library-sort', value))
@@ -691,7 +702,6 @@ onBeforeUnmount(() => {
   window.clearTimeout(startupAnimationTimer)
   window.clearTimeout(themeSwitchTimer)
   window.clearTimeout(viewModeSwitchTimer)
-  window.clearTimeout(settingsNoticeTimer)
   window.clearTimeout(settingsAutoInputTimer)
   document.documentElement.classList.remove('theme-transitioning')
   systemThemeQuery.removeEventListener('change', handleSystemThemeChange)
@@ -712,19 +722,13 @@ function markWatched(payload) {
     movie.watched = true
     if (!movie.watchedDate) movie.watchedDate = localDateKey()
   }
-  window.clearTimeout(homeNoticeTimer)
   if (typeof payload === 'object' && payload.source === 'carousel-swipe') {
-    homeNotice.value = { title: '已完成观看', message: `《${payload.title || movie?.title || '这部电影'}》已移入已观看`, tone: 'success' }
-    homeNoticeTimer = window.setTimeout(() => { homeNotice.value = null }, 2400)
-  } else {
-    homeNotice.value = null
+    pushNotice(homeNotices, { title: '已完成观看', message: `《${payload.title || movie?.title || '这部电影'}》已移入已观看`, tone: 'success' }, 2400)
   }
 }
 
 function showHomeWatchNotice(movie) {
-  window.clearTimeout(homeNoticeTimer)
-  homeNotice.value = { title: '再点一次确认', message: `将《${movie.title}》设为已观看`, tone: 'warning' }
-  homeNoticeTimer = window.setTimeout(() => { homeNotice.value = null }, 2400)
+  pushNotice(homeNotices, { title: '再点一次确认', message: `将《${movie.title}》设为已观看`, tone: 'warning' }, 2400)
 }
 
 function openDetail(movie) {
@@ -882,6 +886,13 @@ function animateSettingsChoice(event: MouseEvent) {
 
   const previous = group.querySelector<HTMLElement>('button.selected')
   const activeMotionIntensity: MotionIntensity = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'low' : motionIntensity.value
+  if (activeMotionIntensity === 'high' && (isNativeApp || currentPage.value === 'settings')) {
+    target.classList.remove('choice-high-tap')
+    void target.offsetWidth
+    target.classList.add('choice-high-tap')
+    window.setTimeout(() => target.classList.remove('choice-high-tap'), 380)
+    return
+  }
   if (activeMotionIntensity === 'low' || (isNativeApp && activeMotionIntensity === 'medium')) {
     target.classList.remove('choice-low-tap')
     void target.offsetWidth
@@ -980,9 +991,7 @@ function animateSettingsChoice(event: MouseEvent) {
 }
 
 function showSettingsAutoSaved(message = '更改已写入当前设备') {
-  window.clearTimeout(settingsNoticeTimer)
-  settingsNotice.value = { title: '设置已自动保存', message }
-  settingsNoticeTimer = window.setTimeout(() => { settingsNotice.value = null }, 2300)
+  pushNotice(settingsNotices, { title: '设置已自动保存', message, tone: 'success' }, 2300)
 }
 
 function handleSettingsAutoInput(event: Event) {
@@ -1032,56 +1041,35 @@ async function testTmdbConnection() {
     if (apiUrl.protocol !== 'https:' || imageUrl.protocol !== 'https:') {
       throw new Error('API 与图片地址都必须使用 HTTPS（默认端口就是 443）')
     }
-    const officialHosts = ['api.themoviedb.org', 'image.tmdb.org']
-    if (tmdbNetworkMode.value === 'custom' && [apiUrl.hostname, imageUrl.hostname].some(host => officialHosts.includes(host))) {
-      throw new Error('VPS 反代模式请填写你自己的域名，不能继续填写 TMDB 官方域名')
-    }
+    if (apiUrl.hostname !== 'api.themoviedb.org' || imageUrl.hostname !== 'image.tmdb.org') throw new Error('当前仅支持 TMDB 官方直连地址')
   } catch (error) {
     tmdbTestState.value = 'error'
     tmdbTestMessage.value = error instanceof Error ? error.message : '服务地址格式不正确。'
     return
   }
   tmdbTestState.value = 'testing'
-  tmdbTestMessage.value = tmdbNetworkMode.value === 'custom' ? '正在通过 VPS HTTPS 443 连接 TMDB…' : '正在直连 TMDB…'
+  tmdbTestMessage.value = '正在直连 TMDB 官方服务…'
   try {
     const request = tmdbRequest(`${base}/configuration`)
     const response = await executeTmdbRequest(request)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     tmdbTestState.value = 'success'
-    tmdbTestMessage.value = tmdbNetworkMode.value === 'custom' ? 'VPS HTTPS 443 反代连接成功。' : 'TMDB 官方直连成功。'
+    tmdbTestMessage.value = 'TMDB 官方直连成功。'
   } catch (error) {
     tmdbTestState.value = 'error'
-    const hint = tmdbNetworkMode.value === 'custom'
-      ? '请检查 VPS 的 Nginx、域名证书、443 防火墙和 VPS 到 TMDB 的连接。'
-      : '国内网络通常无法直连，请切换到 VPS HTTPS 443 反代。'
+    const hint = '中国大陆网络通常无法直接访问，请先开启手机或电脑的系统代理后重试。'
     const reason = error instanceof Error ? error.message : String(error)
     tmdbTestMessage.value = `连接失败（${reason}）。${hint}`
   }
 }
 
 function refreshTmdbEndpoints() {
-  if (tmdbNetworkMode.value === 'official') {
-    tmdbApiBase.value = 'https://api.themoviedb.org/3'
-    tmdbImageBase.value = 'https://image.tmdb.org/t/p'
-  } else {
-    const customApi = localStorage.getItem('movie-tmdb-custom-api-base')
-    const customImage = localStorage.getItem('movie-tmdb-custom-image-base')
-    tmdbApiBase.value = customApi || ''
-    tmdbImageBase.value = customImage || ''
-  }
+  tmdbApiBase.value = 'https://api.themoviedb.org/3'
+  tmdbImageBase.value = 'https://image.tmdb.org/t/p'
   tmdbTestState.value = 'idle'
   tmdbTestMessage.value = ''
   tmdbEndpointRefreshState.value = 'refreshed'
   window.setTimeout(() => { tmdbEndpointRefreshState.value = 'idle' }, 1400)
-}
-
-function switchTmdbNetworkMode(mode: TmdbNetworkMode) {
-  if (tmdbNetworkMode.value === 'custom') {
-    localStorage.setItem('movie-tmdb-custom-api-base', tmdbApiBase.value.trim())
-    localStorage.setItem('movie-tmdb-custom-image-base', tmdbImageBase.value.trim())
-  }
-  tmdbNetworkMode.value = mode
-  refreshTmdbEndpoints()
 }
 
 function tmdbRequest(url, params = {}) {
@@ -1223,16 +1211,13 @@ function markLibraryWatched(movie) {
   if (armedWatched.value !== movie.id) {
     armedWatched.value = movie.id
     window.clearTimeout(watchConfirmTimer)
-    window.clearTimeout(libraryNoticeTimer)
-    libraryNotice.value = { title: '再点一次确认', message: `将《${movie.title}》设为已观看` }
+    pushNotice(libraryNotices, { title: '再点一次确认', message: `将《${movie.title}》设为已观看`, tone: 'warning' }, 2400)
     watchConfirmTimer = window.setTimeout(() => {
       armedWatched.value = null
-      libraryNotice.value = null
     }, 2400)
     return
   }
   armedWatched.value = null
-  libraryNotice.value = null
   markingWatched.value = [...markingWatched.value, movie.id]
   window.setTimeout(() => {
     movie.watched = true
@@ -1245,12 +1230,11 @@ function toggleLibraryWatchStatus(movie) {
   movie.watched = !movie.watched
   if (movie.watched && !movie.watchedDate) movie.watchedDate = localDateKey()
   armedWatched.value = null
-  libraryNotice.value = {
+  pushNotice(libraryNotices, {
     title: movie.watched ? '已设为已观看' : '已设为未观看',
     message: `《${movie.title}》的观看状态已更新`,
-  }
-  window.clearTimeout(libraryNoticeTimer)
-  libraryNoticeTimer = window.setTimeout(() => { libraryNotice.value = null }, 2400)
+    tone: 'success',
+  }, 2400)
 }
 
 function toggleLibraryMovie(id) {
@@ -1274,7 +1258,7 @@ function closeRecordSheet() {
     addOpen.value = false
     recordExpanded.value = false
     selectedTmdbResult.value = null
-    recordNotice.value = null
+    recordNotices.value = []
     recordMode.value = 'search'
     recordClosing.value = false
   }, recordExpanded.value ? 560 : 320)
@@ -1573,9 +1557,7 @@ function resetTmdbSearch() {
 }
 
 function showRecordNotice(title, message, type = 'success') {
-  window.clearTimeout(recordNoticeTimer)
-  recordNotice.value = { title, message, type }
-  recordNoticeTimer = window.setTimeout(() => { recordNotice.value = null }, 3200)
+  pushNotice(recordNotices, { title, message, type }, 3200)
 }
 
 function viewTmdbResult(result) {
@@ -1828,11 +1810,13 @@ function navigateDetail(direction) {
       <div class="ambient-orb ambient-orb--one" aria-hidden="true"></div>
       <div class="ambient-orb ambient-orb--two" aria-hidden="true"></div>
 
+      <NoticeStack v-if="addOpen && (currentPage === 'home' || currentPage === 'library')" :notices="recordNotices" placement="record" :motion="motionIntensity" :duration="3200" closable @dismiss="dismissNotice(recordNotices, $event)" />
+      <NoticeStack v-else-if="currentPage === 'home'" :notices="homeNotices" placement="home" :motion="motionIntensity" :duration="2400" @dismiss="dismissNotice(homeNotices, $event)" />
+      <NoticeStack v-else-if="currentPage === 'library'" :notices="libraryNotices" placement="library" :motion="motionIntensity" :duration="2400" @dismiss="dismissNotice(libraryNotices, $event)" />
+      <NoticeStack v-else-if="currentPage === 'settings'" :notices="settingsNotices" placement="settings" :motion="motionIntensity" :duration="2300" @dismiss="dismissNotice(settingsNotices, $event)" />
+
       <Transition :name="surfaceTransitionName" :duration="surfaceTransitionDuration">
         <section v-if="surfacePage === 'home'" key="home" class="surface-view home-surface">
-        <Transition name="record-notice">
-          <AppNotice v-if="homeNotice" :key="`${homeNotice.title}-${homeNotice.message}`" :title="homeNotice.title" :message="homeNotice.message" :tone="homeNotice.tone || 'warning'" placement="home" :motion="motionIntensity" :duration="2400" />
-        </Transition>
         <header class="topbar surface-piece" style="--piece-order: 0">
           <div class="welcome-row">
             <div>
@@ -1895,9 +1879,6 @@ function navigateDetail(direction) {
         </section>
 
         <section v-else-if="surfacePage === 'library'" key="library" class="surface-view library-surface" :class="`tools-${libraryControlsSide}`" aria-label="电影列表页面" @click="dismissLibraryPopovers">
-          <Transition name="library-notice">
-            <AppNotice v-if="libraryNotice" :key="`${libraryNotice.title}-${libraryNotice.message}`" :title="libraryNotice.title" :message="libraryNotice.message" tone="warning" placement="library" :motion="motionIntensity" :duration="2400" />
-          </Transition>
           <header class="library-header surface-piece" style="--piece-order: 0">
             <div>
               <h1>
@@ -1956,10 +1937,10 @@ function navigateDetail(direction) {
           </div>
 
           <div class="library-timeline surface-piece" :class="{ searching: librarySearchOpen }" style="--piece-order: 3">
-            <aside class="date-dock" :class="{ expanded: libraryDateExpanded, active: libraryDateFilterActive }" aria-label="日期选择">
+            <aside class="date-dock" :class="{ expanded: libraryDateExpanded, active: libraryDateFilterActive, 'year-only': statPeriod === 'year' }" aria-label="日期选择">
               <button class="date-dock__toggle" :aria-expanded="libraryDateExpanded" @click="libraryDateExpanded = !libraryDateExpanded"><small>{{ libraryDateFilterActive ? libraryYearValue : '日期' }}</small><strong>{{ libraryDateFilterActive ? (statPeriod === 'year' ? '全年' : statPeriod === 'month' ? `${libraryMonthValue}月` : `${libraryMonthValue}/${selectedLibraryDay}`) : '全部' }}</strong><ChevronRight :size="13" /></button>
               <div class="date-dock__options">
-                <div class="date-option-row"><span>年份</span><div><button v-for="year in [2024, 2025, 2026, 2027, 2028]" :key="year" :class="{ selected: libraryYearValue === year }" @click="libraryYearValue = year; libraryDateFilterActive = true">{{ year }}</button></div></div>
+                <div class="date-option-row"><span>年份</span><div><button v-for="year in libraryYearOptions" :key="year" :class="{ selected: libraryYearValue === year }" @click="libraryYearValue = year; libraryDateFilterActive = true">{{ year }}</button></div></div>
                 <div v-if="statPeriod !== 'year'" class="date-option-row"><span>月份</span><div><button v-for="month in 12" :key="month" :class="{ selected: libraryMonthValue === month }" @click="libraryMonthValue = month; libraryDateFilterActive = true">{{ month }}月</button></div></div>
                 <div v-if="statPeriod === 'day'" class="date-option-row"><span>日期</span><div><button v-for="date in libraryDateItems" :key="date.day" :class="{ selected: selectedLibraryDay === date.day }" @click="selectedLibraryDay = date.day; libraryDateFilterActive = true; libraryDateExpanded = false">{{ date.day }}</button></div></div>
               </div>
@@ -1972,7 +1953,10 @@ function navigateDetail(direction) {
                 </Transition>
                 <ChevronDown :size="12" />
               </button>
-              <button class="library-favourite-button" :class="{ selected: libraryWatchFilter === 'favourite' }" aria-label="只看我的喜欢" @click="libraryWatchFilter = libraryWatchFilter === 'favourite' ? 'all' : 'favourite'"><Star :size="14" :fill="libraryWatchFilter === 'favourite' ? 'currentColor' : 'none'" /><span>我的喜欢</span></button>
+              <button class="status-cycle-button library-favourite-button" :class="{ selected: libraryWatchFilter === 'favourite' }" aria-label="只看我的喜欢" @click="libraryWatchFilter = libraryWatchFilter === 'favourite' ? 'all' : 'favourite'">
+                <span class="status-cycle-content"><small>喜欢</small><strong>{{ favouriteCount }}</strong></span>
+                <Star :size="12" :fill="libraryWatchFilter === 'favourite' ? 'currentColor' : 'none'" />
+              </button>
             </div>
             <div class="library-list" aria-live="polite">
             <article v-for="(movie, index) in libraryMovies" :key="movie.id" class="library-row" :class="{ expanded: expandedLibraryId === movie.id }" :style="{ '--row-order': index, '--row-tint': movieTone(movie) }">
@@ -2032,9 +2016,6 @@ function navigateDetail(direction) {
             <h2>记录一部电影</h2><p>输入电影名称，从 TMDB 获取封面和影片资料。</p><div class="record-entry-actions"><button @click="startRecord">开始记录</button><button class="record-import-entry" @click="startImport"><Upload :size="15" />导入片单</button></div>
           </template>
           <template v-else-if="recordMode === 'search'">
-            <Transition name="record-notice">
-              <AppNotice v-if="recordNotice" :key="`${recordNotice.title}-${recordNotice.message}`" :title="recordNotice.title" :message="recordNotice.message" :tone="recordNotice.type" placement="record" :motion="motionIntensity" :duration="3200" closable @close="recordNotice = null" />
-            </Transition>
             <header class="record-header" :class="{ 'has-results': tmdbSearchState === 'success' && tmdbResults.length }"><div><small>{{ tmdbSearchState === 'success' && tmdbResults.length ? `搜索结果 · ${tmdbTotalResults} 部` : '新建记录' }}</small><h2>{{ tmdbSearchState === 'success' && tmdbResults.length ? `“${tmdbSearchLastQuery}”` : '搜索一部电影' }}</h2></div><button aria-label="关闭添加电影" @click="closeRecordSheet"><X :size="19" /></button></header>
             <form class="tmdb-search" :class="{ 'is-complete': tmdbSearchState === 'success' && tmdbResults.length }" @submit.prevent="tmdbSearchState === 'success' && tmdbResults.length ? resetTmdbSearch() : searchTmdb()"><Search :size="18" /><input v-model="tmdbQuery" autofocus type="search" placeholder="输入电影名称，例如：流浪地球" aria-label="TMDB电影名称" /><button type="submit" :disabled="tmdbSearchState === 'loading'">{{ tmdbSearchState === 'loading' ? '搜索中' : tmdbSearchState === 'success' && tmdbResults.length ? '重新搜索' : '搜索' }}</button></form>
             <div v-if="!tmdbToken" class="record-api-note"><Database :size="18" /><div><strong>还没有配置 TMDB API 密钥</strong><span>先完成设置，之后输入名称即可获取电影。</span></div><button @click="openTmdbSettingsFromRecord">去设置</button></div>
@@ -2075,9 +2056,6 @@ function navigateDetail(direction) {
             </Transition>
           </template>
           <template v-else>
-            <Transition name="record-notice">
-              <AppNotice v-if="recordNotice" :key="`${recordNotice.title}-${recordNotice.message}`" :title="recordNotice.title" :message="recordNotice.message" :tone="recordNotice.type" placement="record" :motion="motionIntensity" :duration="3200" closable @close="recordNotice = null" />
-            </Transition>
             <header class="record-header import-record-header"><div><small>中文片单</small><h2>检查后再导入</h2></div><button aria-label="关闭导入片单" @click="closeRecordSheet"><X :size="19" /></button></header>
             <div class="import-batch-tool"><input ref="importFileInput" class="import-file-input" type="file" accept=".txt,.csv,.xlsx,.xls,text/plain,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" @change="handleImportFile" /><button type="button" @click="importFileInput?.click()"><FileText :size="17" /><span><strong>选择 TXT 或 Excel 片单</strong><small>支持 .txt · .xlsx · .xls · .csv</small></span><Upload :size="15" /></button></div>
             <section class="import-review">
@@ -2110,9 +2088,6 @@ function navigateDetail(direction) {
 
       <Transition name="settings-shell">
         <section v-if="currentPage === 'settings'" class="personal-settings" @input.capture="handleSettingsAutoInput">
-          <Transition name="settings-notice">
-            <AppNotice v-if="settingsNotice" :key="`${settingsNotice.title}-${settingsNotice.message}`" :title="settingsNotice.title" :message="settingsNotice.message" tone="success" placement="settings" :motion="motionIntensity" :duration="2300" />
-          </Transition>
           <Transition :name="settingsTransitionName" mode="out-in">
             <div :key="settingsSection" class="settings-page">
               <header class="settings-header settings-piece" style="--settings-order: 0">
@@ -2250,15 +2225,15 @@ function navigateDetail(direction) {
 
               <template v-else>
                 <div class="network-options network-options--official settings-piece" style="--settings-order: 1" role="status"><button class="selected"><strong>TMDB 官方直连</strong><span>中国大陆使用时请先开启代理</span></button></div>
-                <button class="tmdb-refresh-endpoints settings-piece" :class="{ refreshed: tmdbEndpointRefreshState === 'refreshed' }" style="--settings-order: 2" @click="refreshTmdbEndpoints"><RefreshCw :size="16" /><span><strong>{{ tmdbEndpointRefreshState === 'refreshed' ? '地址已刷新' : '刷新当前地址' }}</strong><small>{{ tmdbNetworkMode === 'official' ? '恢复 TMDB 官方 API 与图片地址' : '重新载入已保存的 VPS 反代地址' }}</small></span></button>
+                <button class="tmdb-refresh-endpoints settings-piece" :class="{ refreshed: tmdbEndpointRefreshState === 'refreshed' }" style="--settings-order: 2" @click="refreshTmdbEndpoints"><RefreshCw :size="16" /><span><strong>{{ tmdbEndpointRefreshState === 'refreshed' ? '官方地址已恢复' : '恢复官方地址' }}</strong><small>恢复 TMDB 官方 API 与图片地址</small></span></button>
                 <div class="tmdb-notice settings-piece" style="--settings-order: 3">
                   <Database :size="20" />
                   <div><strong>直接访问 TMDB 官方域名</strong><p>中国大陆网络通常不能直接连接 TMDB；搜索或加载图片前，请先在手机或电脑上开启系统代理。</p></div>
                 </div>
-                <div class="tmdb-native-warning settings-piece" style="--settings-order: 3"><strong>{{ tmdbNetworkMode === 'custom' ? 'HTTPS 默认就是 443' : '官方 443 不等于国内可达' }}</strong><span>{{ tmdbNetworkMode === 'custom' ? '地址填写 https://你的域名/路径 即可，不写 :443 也会使用 443；域名必须有有效 HTTPS 证书。' : '要在国内使用，请准备一台能访问 TMDB 的境外 VPS，并切换到左侧反代模式。' }}</span></div>
+                <div class="tmdb-native-warning settings-piece" style="--settings-order: 3"><strong>本应用不内置代理</strong><span>请先在手机或电脑系统中开启可访问 TMDB 的代理，再返回这里测试连接；无需填写 VPS 或反代地址。</span></div>
                 <div class="settings-group settings-piece" style="--settings-order: 3"><label for="tmdb-token">API 密钥</label><input id="tmdb-token" v-model.trim="tmdbToken" data-auto-save type="password" autocomplete="off" placeholder="输入 TMDB v3 API 密钥" /><small>支持 v3 API 密钥；旧的 Read Access Token 也会自动识别。密钥只保存在当前浏览器。</small></div>
-                <div class="settings-group settings-piece" style="--settings-order: 4"><label for="tmdb-api">API 地址</label><input id="tmdb-api" v-model.trim="tmdbApiBase" data-auto-save inputmode="url" :placeholder="tmdbNetworkMode === 'custom' ? 'https://tmdb.example.com/tmdb-api' : 'https://api.themoviedb.org/3'" /><small>{{ tmdbNetworkMode === 'custom' ? '示例：https://你的域名/tmdb-api' : '官方默认：https://api.themoviedb.org/3' }}</small></div>
-                <div class="settings-group settings-piece" style="--settings-order: 5"><label for="tmdb-image">图片地址</label><input id="tmdb-image" v-model.trim="tmdbImageBase" data-auto-save inputmode="url" :placeholder="tmdbNetworkMode === 'custom' ? 'https://tmdb.example.com/tmdb-image' : 'https://image.tmdb.org/t/p'" /><small>{{ tmdbNetworkMode === 'custom' ? '示例：https://你的域名/tmdb-image' : '官方默认：https://image.tmdb.org/t/p' }}</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 4"><label for="tmdb-api">API 地址</label><input id="tmdb-api" v-model.trim="tmdbApiBase" inputmode="url" readonly /><small>TMDB 官方：https://api.themoviedb.org/3</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 5"><label for="tmdb-image">图片地址</label><input id="tmdb-image" v-model.trim="tmdbImageBase" inputmode="url" readonly /><small>TMDB 官方：https://image.tmdb.org/t/p</small></div>
                 <button class="tmdb-test settings-piece" style="--settings-order: 7" :disabled="tmdbTestState === 'testing'" @click="testTmdbConnection">{{ tmdbTestState === 'testing' ? '正在测试…' : '测试连接' }}</button>
                 <p v-if="tmdbTestMessage" class="tmdb-result" :class="`is-${tmdbTestState}`">{{ tmdbTestMessage }}</p>
               </template>
