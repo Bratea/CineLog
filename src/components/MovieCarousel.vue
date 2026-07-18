@@ -60,9 +60,9 @@ const cardMovies = computed(() => {
 
 const visualOffset = (offset) => offset + dragX.value / 300
 const detailMotion = computed(() => ({
-  low: { distance: 82, duration: 230 },
-  medium: { distance: 108, duration: 440 },
-  high: { distance: 126, duration: 700 },
+  low: { distance: 76, duration: 170 },
+  medium: { distance: 96, duration: 280 },
+  high: { distance: 112, duration: 360 },
 }[props.motionIntensity]))
 const openProgress = computed(() => Math.min(1, Math.max(0, -dragY.value / detailMotion.value.distance)))
 
@@ -511,7 +511,6 @@ onBeforeUnmount(() => {
 .watch-slider.armed { color:#ffe8a7; border-color:rgba(255,210,105,.36); background:rgba(66,51,23,.64); box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 0 20px rgba(255,195,67,.12); }
 .watch-slider.armed::before { background:linear-gradient(90deg,rgba(255,198,73,.3),rgba(255,198,73,.06)); }
 .watch-slider.armed .watch-slider__handle { color:#4b3510; background:linear-gradient(145deg,#ffe9a8,#edbd50); }
-:global(.native-app) .album-card{filter:none;transition:transform .4s cubic-bezier(.2,.8,.2,1),opacity .28s ease,border-radius .28s ease,box-shadow .28s ease;will-change:auto}:global(.native-app) .deck.dragging .album-card{will-change:transform}:global(.native-app) .three-glow{display:none}:global(.native-app) .motion-high.opening-detail .album-card.active-card,:global(.native-app) .motion-high.opening-detail .poster-image{animation-duration:.42s}:global(.native-app) .motion-high.opening-detail .album-card:not(.active-card){transition-duration:.4s,.26s}:global(.native-app) .motion-high.opening-detail .album-info{animation-duration:.32s}:global(.native-app) .motion-medium.opening-detail .album-card.active-card,:global(.native-app) .motion-medium.opening-detail .poster-image{animation-duration:.34s}
 @media (prefers-reduced-motion: reduce) { .album-card, .dots i { transition: none; } }
 @media (max-height: 760px) {
   .album { top: 8px; }

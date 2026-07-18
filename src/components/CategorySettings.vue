@@ -286,11 +286,17 @@ onBeforeUnmount(() => {
               @pointermove="cancelHold"
               @contextmenu.prevent
             >
-              <GripVertical :size="16" />
-              <span>{{ child.label }}</span>
-              <small>{{ child.source === 'data' ? '来自影片数据' : child.source === 'custom' ? '自定义' : '默认' }}</small>
-              <span class="category-row-actions"><button type="button" :disabled="activeCategory.children.findIndex((item) => item.id === child.id) === 0" :aria-label="`${child.label}上移`" @pointerdown.stop @click.stop="moveChild(child.id, -1)"><ChevronUp :size="13" /></button><button type="button" :disabled="activeCategory.children.findIndex((item) => item.id === child.id) === activeCategory.children.length - 1" :aria-label="`${child.label}下移`" @pointerdown.stop @click.stop="moveChild(child.id, 1)"><ChevronDown :size="13" /></button></span>
-              <button v-if="child.source === 'custom'" :aria-label="`删除${child.label}`" @pointerdown.stop @click.stop="removeCategory(child.id)"><X :size="14" /></button>
+              <span class="category-child-rank">{{ String((page - 1) * pageSize + index + 1).padStart(2, '0') }}</span>
+              <i class="category-child-grip"><GripVertical :size="16" /></i>
+              <div class="category-child-copy">
+                <strong>{{ child.label }}</strong>
+                <small>{{ child.source === 'data' ? '来自影片数据' : child.source === 'custom' ? '自定义' : '默认' }}</small>
+              </div>
+              <nav class="category-row-actions" :aria-label="`${child.label}排序操作`">
+                <button type="button" :disabled="activeCategory.children.findIndex((item) => item.id === child.id) === 0" :aria-label="`${child.label}上移`" @pointerdown.stop @click.stop="moveChild(child.id, -1)"><ChevronUp :size="13" /></button>
+                <button type="button" :disabled="activeCategory.children.findIndex((item) => item.id === child.id) === activeCategory.children.length - 1" :aria-label="`${child.label}下移`" @pointerdown.stop @click.stop="moveChild(child.id, 1)"><ChevronDown :size="13" /></button>
+                <button v-if="child.source === 'custom'" type="button" :aria-label="`删除${child.label}`" @pointerdown.stop @click.stop="removeCategory(child.id)"><X :size="13" /></button>
+              </nav>
             </div>
           </TransitionGroup>
         </Transition>

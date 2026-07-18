@@ -10,6 +10,22 @@
   </head>
   <body>
     <div id="app"></div>
+    <div id="startup-error" hidden role="alert">
+      <strong>应用启动失败</strong>
+      <span>请重新打开应用；如果仍然出现，请更新 Android System WebView。</span>
+    </div>
+    <script>
+      (() => {
+        const showStartupError = () => {
+          const error = document.getElementById('startup-error')
+          if (!error || document.querySelector('#app > *')) return
+          error.hidden = false
+        }
+        window.addEventListener('error', showStartupError)
+        window.addEventListener('unhandledrejection', showStartupError)
+        window.setTimeout(showStartupError, 8000)
+      })()
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

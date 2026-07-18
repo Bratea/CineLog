@@ -48,8 +48,10 @@ const themeSwitching = ref(false)
 const startupAnimationEnabled = ref(localStorage.getItem(STARTUP_ANIMATION_ENABLED_KEY) !== 'false')
 const showStartupAnimation = ref(startupAnimationEnabled.value)
 const viewModeSwitching = ref(false)
+const statusSwitching = ref(false)
 let startupAnimationTimer
 let viewModeSwitchTimer
+let statusSwitchTimer
 
 function completeStartupAnimation() {
   if (!showStartupAnimation.value) return
@@ -494,7 +496,7 @@ const periodLabel = computed(() => ({ year: `${selectedYear.value} 年`, month: 
 const watchedSubtitle = computed(() => `按${({ year: '年', month: '月', day: '日' })[statPeriod.value]}整理 · 共 ${filteredMovies.value.length} 部`)
 const displayedMovies = computed(() => filteredMovies.value.slice(0, homeDisplayLimit.value))
 const surfaceTransitionName = computed(() => transitionDirection.value === 'forward' ? 'surface-forward' : 'surface-back')
-const surfaceTransitionDuration = computed(() => ({ high: 540, medium: 480, low: 260 })[motionIntensity.value])
+const surfaceTransitionDuration = computed(() => ({ high: 720, medium: 480, low: 260 })[motionIntensity.value])
 const settingsTransitionName = computed(() => settingsDirection.value === 'forward' ? 'settings-forward' : 'settings-back')
 const surfacePage = computed(() => currentPage.value === 'detail' ? detailOrigin.value : currentPage.value)
 const libraryYears = computed(() => [...new Set(movieRecords.value.map((movie) => movie.year))].sort().reverse())
@@ -603,9 +605,15 @@ watch(libraryMediaType, () => {
 })
 
 function setWatchStat(value) {
-  if (activeWatchStat.value === value) return
+  if (activeWatchStat.value === value || statusSwitching.value) return
+  statusSwitching.value = true
   homeSwapTransition.value = 'card-swap'
   activeWatchStat.value = value
+  const switchDuration = ({ high: 560, medium: 380, low: 180 })[motionIntensity.value]
+  window.clearTimeout(statusSwitchTimer)
+  statusSwitchTimer = window.setTimeout(() => {
+    statusSwitching.value = false
+  }, switchDuration)
 }
 
 function toggleViewMode() {
@@ -702,6 +710,7 @@ onBeforeUnmount(() => {
   window.clearTimeout(startupAnimationTimer)
   window.clearTimeout(themeSwitchTimer)
   window.clearTimeout(viewModeSwitchTimer)
+  window.clearTimeout(statusSwitchTimer)
   window.clearTimeout(settingsAutoInputTimer)
   document.documentElement.classList.remove('theme-transitioning')
   systemThemeQuery.removeEventListener('change', handleSystemThemeChange)
@@ -799,6 +808,15 @@ function openDetailFromPoster(movie: Movie, source: Element | null) {
     ensureTmdbDetails(movie)
   }, 90)
   window.setTimeout(() => { posterFlight.value = null }, 460)
+}
+
+function openLibraryDetail(movie: Movie) {
+  posterFlight.value = null
+  detailOrigin.value = 'library'
+  detailEntry.value = 'library'
+  selectedMovie.value = movie
+  currentPage.value = 'detail'
+  ensureTmdbDetails(movie)
 }
 
 function openHomeListDetail(payload) {
@@ -1830,7 +1848,7 @@ function navigateDetail(direction) {
           </div>
 
           <div class="dashboard-controls">
-            <section class="status-switch" :class="`is-${activeWatchStat}`" aria-label="观看状态筛选">
+            <section class="status-switch" :class="[`is-${activeWatchStat}`, { switching: statusSwitching }]" aria-label="观看状态筛选">
               <i class="status-switch__dot" aria-hidden="true"></i>
               <span class="status-switch__thumb" aria-hidden="true"></span>
               <button :class="{ selected: activeWatchStat === 'unwatched' }" @click="setWatchStat('unwatched')">
@@ -1976,7 +1994,7 @@ function navigateDetail(direction) {
                 <div v-if="expandedLibraryId === movie.id" class="library-preview">
                   <div class="library-preview__facts"><span>{{ movie.originalTitle }}</span><span>{{ movie.watched ? '已观看' : '未观看' }}</span></div>
                   <p>{{ movie.overview || movie.feeling || '暂无剧情简介。' }}</p>
-                  <div class="library-preview__footer"><button class="library-preview__watch" :class="{ watched: movie.watched }" :aria-label="`将${movie.title}切换为${movie.watched ? '未观看' : '已观看'}`" @click.stop="toggleLibraryWatchStatus(movie)"><span></span>{{ movie.watched ? '已观看' : '未观看' }}</button><button class="library-preview__visit" :aria-label="`访问${movie.title}详情`" @click="openDetailFromPoster(movie, ($event.currentTarget as HTMLElement).closest('.library-row'))">访问 <ArrowUpRight :size="14" /></button></div>
+                  <div class="library-preview__footer"><button class="library-preview__watch" :class="{ watched: movie.watched }" :aria-label="`将${movie.title}切换为${movie.watched ? '未观看' : '已观看'}`" @click.stop="toggleLibraryWatchStatus(movie)"><span></span>{{ movie.watched ? '已观看' : '未观看' }}</button><button class="library-preview__visit" :aria-label="`访问${movie.title}详情`" @click="openLibraryDetail(movie)">访问 <ArrowUpRight :size="14" /></button></div>
                 </div>
               </Transition>
             </article>
