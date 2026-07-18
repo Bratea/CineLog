@@ -6,7 +6,12 @@ import cinematicAnimeCollage from '../assets/cinematic-anime-collage.png'
 import { designPx, designRem } from '../utils/responsive'
 import type { Movie } from '../types'
 
-const props = withDefaults(defineProps<{ movies: Movie[]; active?: boolean }>(), { active: true })
+const props = withDefaults(defineProps<{
+  movies: Movie[]
+  active?: boolean
+  motionIntensity?: 'low' | 'medium' | 'high'
+  databaseEmpty?: boolean
+}>(), { active: true, motionIntensity: 'high', databaseEmpty: false })
 const emit = defineEmits(['mark-watched', 'open-detail'])
 
 const activeIndex = ref(0)
@@ -51,7 +56,12 @@ const cardMovies = computed(() => {
 })
 
 const visualOffset = (offset) => offset + dragX.value / 300
-const openProgress = computed(() => Math.min(1, Math.max(0, -dragY.value / 112)))
+const detailMotion = computed(() => ({
+  low: { distance: 82, duration: 230 },
+  medium: { distance: 108, duration: 440 },
+  high: { distance: 126, duration: 700 },
+}[props.motionIntensity]))
+const openProgress = computed(() => Math.min(1, Math.max(0, -dragY.value / detailMotion.value.distance)))
 
 function move(direction) {
   const count = props.movies.length
@@ -129,8 +139,9 @@ function pointerUp() {
 function beginDetailOpen(movie) {
   if (!movie || isOpeningDetail.value) return
   isOpeningDetail.value = true
+  dragY.value = -detailMotion.value.distance
   startGlow()
-  openTimer = window.setTimeout(() => emit('open-detail', movie), 220)
+  openTimer = window.setTimeout(() => emit('open-detail', movie), detailMotion.value.duration)
 }
 
 function resetOpenState() {
@@ -151,7 +162,7 @@ function posterStyle(movie) {
   // 首页卡片使用竖版海报作为主体；横版背景只在没有海报时兜底。
   const path = movie.posterUrl || movie.poster_path || movie.backdropUrl || movie.backdrop_path
   if (path) {
-    const src = path.startsWith('http') ? path : `https://image.tmdb.org/t/p/original${path}`
+    const src = path.startsWith('http') ? path : `https://image.tmdb.org/t/p/w500${path}`
     return { backgroundImage: `url(${src})` }
   }
   return movie.poster === 'demon' ? { backgroundImage: `url(${cinematicAnimeCollage})` } : {}
@@ -209,7 +220,8 @@ function completeWatchSwipe() {
   swipeX.value = swipeMax.value
   swipeSettled.value = true
   isSwiping.value = false
-  window.setTimeout(() => emit('mark-watched', activeMovie.value.id), 1050)
+  const movie = activeMovie.value
+  window.setTimeout(() => emit('mark-watched', { id: movie.id, title: movie.title, source: 'carousel-swipe' }), 1050)
 }
 
 function armWatchSwipe() {
@@ -321,7 +333,7 @@ onBeforeUnmount(() => {
     <div
       ref="deck"
       class="deck"
-      :class="{ dragging: isDragging, returning: isReturning, 'opening-detail': isOpeningDetail }"
+      :class="[`motion-${motionIntensity}`, { dragging: isDragging, returning: isReturning, 'opening-detail': isOpeningDetail }]"
       @pointerdown="pointerDown"
       @pointermove="pointerMove"
       @pointerup="pointerUp"
@@ -332,8 +344,8 @@ onBeforeUnmount(() => {
 
       <div v-if="!movies.length" class="empty-deck">
         <Check :size="21" stroke-width="2.5" />
-        <h3>待看的都完成了</h3>
-        <p>切到“已观看”继续浏览。</p>
+        <h3>{{ databaseEmpty ? '还没有观影记录' : '当前筛选没有影片' }}</h3>
+        <p>{{ databaseEmpty ? '点按下方加号，记录你的第一部电影。' : '换个时间或观看状态看看。' }}</p>
       </div>
 
       <article
@@ -352,7 +364,7 @@ onBeforeUnmount(() => {
             <span class="card-stars" :aria-label="`评分 ${movie.rating ?? 0} 分`">
               <Star v-for="star in 5" :key="star" :size="13" :class="{ filled: star <= Math.round((movie.rating || 0) / 2) }" :fill="star <= Math.round((movie.rating || 0) / 2) ? 'currentColor' : 'none'" />
             </span>
-            <time>{{ movie.watchedDate || movie.releaseDate || movie.release_date || movie.year }}</time>
+            <time>{{ movie.watched ? (movie.watchedDate || movie.recordDate || '未记录日期') : (movie.releaseDate || movie.release_date || movie.year) }}</time>
           </div>
           <div v-else class="album-bottom">
             <div
@@ -400,11 +412,22 @@ onBeforeUnmount(() => {
 .album-card.active-card { cursor: ns-resize; }
 .dragging .album-card { transition: none; }
 .returning .album-card.active-card { transition:transform .52s cubic-bezier(.16,1,.3,1),border-radius .38s ease,box-shadow .38s ease; }
-.opening-detail .album-card:not(.active-card) { opacity: 0 !important; transform: translateX(calc(-50% + var(--x))) translateY(34px) scale(.82); transition: transform .44s cubic-bezier(.3,.7,.25,1), opacity .3s ease; }
-.opening-detail .album-card.active-card { z-index: 6; border-radius: 17px; box-shadow: 0 38px 74px rgba(9,10,14,.42); animation:card-open-lift .5s cubic-bezier(.2,.72,.18,1) both; transition:border-radius .48s ease,box-shadow .48s ease; }
-.opening-detail .active-card .poster-image { animation:poster-open-lift .5s cubic-bezier(.2,.72,.18,1) both; }
-.opening-detail .active-card .album-info { animation:card-info-release .36s ease-out both; }
-.opening-detail .three-glow { opacity:.18; transform:scale(1.05); transition:opacity .42s ease,transform .5s cubic-bezier(.2,.72,.18,1); }
+.opening-detail .album-card.active-card { z-index: 6; border-radius: 17px; box-shadow: 0 38px 74px rgba(9,10,14,.42); }
+.motion-high.opening-detail .album-card:not(.active-card) { opacity:0 !important; transform:translateX(calc(-50% + var(--x))) translateY(44px) scale(.78); transition:transform .7s cubic-bezier(.16,1,.3,1),opacity .46s ease; }
+.motion-high.opening-detail .album-card.active-card { animation:card-open-lift-high .7s cubic-bezier(.16,1,.3,1) both; transition:border-radius .64s ease,box-shadow .64s ease; }
+.motion-high.opening-detail .active-card .poster-image { animation:poster-open-lift-high .7s cubic-bezier(.16,1,.3,1) both; }
+.motion-high.opening-detail .active-card .album-info { animation:card-info-release-high .54s cubic-bezier(.16,1,.3,1) both; }
+.motion-high.opening-detail .three-glow { opacity:.2; transform:scale(1.08); transition:opacity .58s ease,transform .7s cubic-bezier(.16,1,.3,1); }
+.motion-medium.opening-detail .album-card:not(.active-card) { opacity:0 !important; transform:translateX(calc(-50% + var(--x))) translateY(32px) scale(.84); transition:transform .44s cubic-bezier(.2,.8,.2,1),opacity .3s ease; }
+.motion-medium.opening-detail .album-card.active-card { animation:card-open-lift-medium .44s cubic-bezier(.2,.8,.2,1) both; transition:border-radius .4s ease,box-shadow .4s ease; }
+.motion-medium.opening-detail .active-card .poster-image { animation:poster-open-lift-medium .44s cubic-bezier(.2,.8,.2,1) both; }
+.motion-medium.opening-detail .active-card .album-info { animation:card-info-release-medium .32s ease-out both; }
+.motion-medium.opening-detail .three-glow { opacity:.14; transform:scale(1.04); transition:opacity .32s ease,transform .44s ease; }
+.motion-low.opening-detail .album-card:not(.active-card) { opacity:0 !important; transform:translateX(calc(-50% + var(--x))) translateY(16px) scale(.92); transition:transform .2s ease-out,opacity .16s ease; }
+.motion-low.opening-detail .album-card.active-card { animation:card-open-lift-low .23s ease-out both; transition:border-radius .2s ease,box-shadow .2s ease; }
+.motion-low.opening-detail .active-card .poster-image { animation:poster-open-lift-low .23s ease-out both; }
+.motion-low.opening-detail .active-card .album-info { animation:card-info-release-low .18s ease-out both; }
+.motion-low.opening-detail .three-glow { opacity:.07; transform:scale(1.015); transition:opacity .18s ease,transform .2s ease; }
 .poster-image { position: absolute; inset: 0; overflow: hidden; background-color: #111318; background-size: cover; background-position: center; background-repeat: no-repeat; }
 .poster-image::after { content: ''; position: absolute; z-index: 1; inset: 40% 0 0; background: linear-gradient(180deg, transparent 0%, rgba(7, 9, 12, .04) 28%, rgba(7, 9, 12, .42) 72%, rgba(7, 9, 12, .68) 100%); }
 .album-card--pop .poster-image { background-image: radial-gradient(circle at 60% 20%, #ffcc74 0 7%, transparent 8%), linear-gradient(155deg, #4bb5cd, #1c4e80 50%, #061425); }
@@ -443,9 +466,15 @@ onBeforeUnmount(() => {
 .dots i { display: block; width: 7px; height: 7px; border-radius: 100px; background: #d7d8db; transition: all .35s ease; }
 .dots i.active { width: 19px; background: #17181b; }
 @keyframes card-rise { from { opacity: 0; transform: translateX(calc(-50% + var(--x))) translateY(18px) rotateZ(var(--tilt)) rotateY(calc(var(--rotate) * -.45)) scale(calc(var(--scale) * .985)); } }
-@keyframes card-open-lift { 0% { transform:translateX(calc(-50% + var(--x))) translateY(var(--lift)) rotateZ(var(--tilt)) rotateX(var(--open-tilt,0deg)) scale(var(--scale)); } 68% { transform:translateX(calc(-50% + var(--x))) translateY(-82px) rotateZ(0) rotateX(-.35deg) scale(1.145); } 100% { transform:translateX(calc(-50% + var(--x))) translateY(-74px) rotateZ(0) rotateX(0) scale(1.13); } }
-@keyframes poster-open-lift { 0% { transform:scale(1); filter:saturate(1); } 100% { transform:scale(1.045); filter:saturate(1.08); } }
-@keyframes card-info-release { 0% { opacity:1; transform:none; } 100% { opacity:.28; transform:translateY(12px); } }
+@keyframes card-open-lift-high { 0% { transform:translateX(calc(-50% + var(--x))) translateY(var(--lift)) rotateZ(var(--tilt)) rotateX(var(--open-tilt,0deg)) scale(var(--scale)); } 58% { transform:translateX(calc(-50% + var(--x))) translateY(-96px) rotateZ(0) rotateX(-.55deg) scale(1.17); } 78% { transform:translateX(calc(-50% + var(--x))) translateY(-72px) rotateZ(0) rotateX(.15deg) scale(1.122); } 100% { transform:translateX(calc(-50% + var(--x))) translateY(-78px) rotateZ(0) rotateX(0) scale(1.14); } }
+@keyframes card-open-lift-medium { 0% { transform:translateX(calc(-50% + var(--x))) translateY(var(--lift)) rotateZ(var(--tilt)) scale(var(--scale)); } 72% { transform:translateX(calc(-50% + var(--x))) translateY(-78px) rotateZ(0) scale(1.135); } 100% { transform:translateX(calc(-50% + var(--x))) translateY(-70px) rotateZ(0) scale(1.12); } }
+@keyframes card-open-lift-low { from { transform:translateX(calc(-50% + var(--x))) translateY(var(--lift)) scale(var(--scale)); } to { transform:translateX(calc(-50% + var(--x))) translateY(-42px) scale(1.055); } }
+@keyframes poster-open-lift-high { 0% { transform:scale(1); filter:saturate(1); } 62% { transform:scale(1.058); filter:saturate(1.1); } 100% { transform:scale(1.045); filter:saturate(1.08); } }
+@keyframes poster-open-lift-medium { from { transform:scale(1); } to { transform:scale(1.035); } }
+@keyframes poster-open-lift-low { from { transform:scale(1); } to { transform:scale(1.015); } }
+@keyframes card-info-release-high { 0% { opacity:1; transform:none; } 65% { opacity:.5; transform:translateY(7px); } 100% { opacity:.2; transform:translateY(16px); } }
+@keyframes card-info-release-medium { from { opacity:1; transform:none; } to { opacity:.3; transform:translateY(11px); } }
+@keyframes card-info-release-low { from { opacity:1; } to { opacity:.45; transform:translateY(5px); } }
 @keyframes success-handle { 0% { transform: translateX(var(--swipe-x)) scale(.84); box-shadow: 0 0 0 0 rgba(131,221,176,.65); } 55% { transform: translateX(var(--swipe-x)) scale(1.16); box-shadow: 0 0 0 9px rgba(131,221,176,0); } 100% { transform: translateX(var(--swipe-x)) scale(1); box-shadow: 0 4px 11px rgba(0,0,0,.18); } }
 @keyframes success-ring { to { stroke-dashoffset: 0; } }
 @keyframes success-check { to { stroke-dashoffset: 0; } }

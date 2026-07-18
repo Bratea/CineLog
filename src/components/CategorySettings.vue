@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
-import { ChevronLeft, ChevronRight, GripVertical, Plus, X } from 'lucide-vue-next'
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, GripVertical, Plus, X } from 'lucide-vue-next'
 import type { Category } from '../types'
 
 const props = defineProps<{ categories: Category[]; motionIntensity?: 'high' | 'medium' | 'low' }>()
@@ -98,6 +98,19 @@ function removeCategory(childId) {
   if (selectedChildId.value === childId) selectedChildId.value = ''
   page.value = Math.min(page.value, Math.max(1, Math.ceil(active.children.length / pageSize)))
   commitCategories(categories, '标签已删除并自动保存')
+}
+
+function moveChild(childId: string, direction: number) {
+  const categories = cloneCategories()
+  const active = categories.find((category) => category.id === activeId.value)
+  const from = active?.children.findIndex((child) => child.id === childId) ?? -1
+  const to = from + direction
+  if (!active || from < 0 || to < 0 || to >= active.children.length) return
+  const [moved] = active.children.splice(from, 1)
+  active.children.splice(to, 0, moved)
+  page.value = Math.floor(to / pageSize) + 1
+  selectedChildId.value = childId
+  commitCategories(categories)
 }
 
 function changePage(nextPage) {
@@ -241,6 +254,7 @@ onBeforeUnmount(() => {
           <GripVertical :size="16" />
           <span>{{ child.label }}</span>
           <small>{{ child.source === 'data' ? '来自影片数据' : child.source === 'custom' ? '自定义' : '默认' }}</small>
+          <span class="category-row-actions"><button type="button" :disabled="activeCategory.children.findIndex((item) => item.id === child.id) === 0" :aria-label="`${child.label}上移`" @pointerdown.stop @click.stop="moveChild(child.id, -1)"><ChevronUp :size="13" /></button><button type="button" :disabled="activeCategory.children.findIndex((item) => item.id === child.id) === activeCategory.children.length - 1" :aria-label="`${child.label}下移`" @pointerdown.stop @click.stop="moveChild(child.id, 1)"><ChevronDown :size="13" /></button></span>
           <button v-if="child.source === 'custom'" :aria-label="`删除${child.label}`" @pointerdown.stop @click.stop="removeCategory(child.id)"><X :size="14" /></button>
         </div>
       </TransitionGroup>

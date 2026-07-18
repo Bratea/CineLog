@@ -4,7 +4,7 @@ import { ChevronRight, Star } from 'lucide-vue-next'
 import cinematicAnimeCollage from '../assets/cinematic-anime-collage.png'
 import type { Movie } from '../types'
 
-defineProps<{ movies: Movie[] }>()
+withDefaults(defineProps<{ movies: Movie[]; databaseEmpty?: boolean }>(), { databaseEmpty: false })
 const emit = defineEmits(['open-detail', 'mark-watched', 'watch-warning'])
 const armedId = ref(null)
 const completingId = ref(null)
@@ -17,7 +17,7 @@ function openRow(movie, event) {
 function posterStyle(movie) {
   const path = movie.backdropUrl || movie.posterUrl || movie.backdrop_path || movie.poster_path
   if (path) {
-    const src = path.startsWith('http') ? path : `https://image.tmdb.org/t/p/original${path}`
+    const src = path.startsWith('http') ? path : `https://image.tmdb.org/t/p/w342${path}`
     return { backgroundImage: `url(${src})` }
   }
   return movie.poster === 'demon' ? { backgroundImage: `url(${cinematicAnimeCollage})` } : {}
@@ -58,7 +58,7 @@ onBeforeUnmount(() => window.clearTimeout(confirmTimer))
         <svg viewBox="0 0 36 36" aria-hidden="true"><circle class="ring-track" cx="18" cy="18" r="14"/><circle class="ring-progress" cx="18" cy="18" r="14"/><path class="ring-check" d="m11.5 18.2 4.2 4.1 8.8-9"/></svg><span v-if="armedId === movie.id" class="confirm-dot">!</span>
       </button>
     </article>
-    <p v-if="!movies.length" class="movie-list-empty">这里还没有电影。</p>
+    <div v-if="!movies.length" class="movie-list-empty"><strong>{{ databaseEmpty ? '还没有观影记录' : '当前筛选没有影片' }}</strong><span>{{ databaseEmpty ? '点按下方加号添加第一部电影。' : '换个筛选条件看看。' }}</span></div>
   </div>
 </template>
 
@@ -80,7 +80,7 @@ onBeforeUnmount(() => window.clearTimeout(confirmTimer))
 .movie-list-copy span.pending { color: #b58000; }
 .movie-list-arrow { display: grid; place-items: center; width: 32px; height: 32px; color: #fff; border-radius: 50%; background: #1e1f22; transition: transform .3s cubic-bezier(.16,1,.3,1); }
 .movie-list-item:hover .movie-list-arrow, .movie-list-item:focus-visible .movie-list-arrow { transform: translateX(2px) scale(1.04); }
-.movie-list-empty { padding: 40px 0; color: #999a9f; text-align: center; font-size: 12px; }
+.movie-list-empty { display:grid;gap:5px;padding:40px 0;color:#999a9f;text-align:center;font-size:10px}.movie-list-empty strong{color:#55565b;font-size:13px}.movie-list-empty span{font-size:9px}
 @keyframes row-in { 0% { opacity: 0; transform: translateY(24px) scale(.97); } 72% { opacity: 1; transform: translateY(-2px) scale(1.012); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
 @media (orientation: landscape) and (max-height: 600px) {
   .movie-list {
