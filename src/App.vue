@@ -1965,7 +1965,7 @@ function navigateDetail(direction) {
               <button type="button" class="date-dock__reset" aria-label="显示全部日期" @click.stop="resetLibraryDate">全部</button>
             </aside>
             <div class="library-status-stack" role="group" aria-label="观看状态筛选">
-              <button class="status-cycle-button" :class="`is-${activeLibraryWatchState.value}`" :aria-label="`当前${activeLibraryWatchState.label}，点击切换观看状态`" @click="cycleLibraryWatchFilter">
+              <button class="status-cycle-button" :class="libraryWatchFilter === 'favourite' ? 'is-inactive' : `is-${activeLibraryWatchState.value}`" :aria-label="`当前${activeLibraryWatchState.label}，点击切换观看状态`" @click="cycleLibraryWatchFilter">
                 <Transition name="status-cycle" mode="out-in">
                   <span :key="activeLibraryWatchState.value" class="status-cycle-content"><small>{{ activeLibraryWatchState.label }}</small><strong>{{ activeLibraryWatchState.count }}</strong></span>
                 </Transition>
