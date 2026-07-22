@@ -152,6 +152,10 @@ function pointerUp() {
 
 function beginDetailOpen(movie) {
   if (!movie || isOpeningDetail.value) return
+  if (props.motionIntensity === 'low') {
+    emit('open-detail', movie)
+    return
+  }
   isOpeningDetail.value = true
   latestDragY = -detailMotion.value.distance
   dragY.value = latestDragY

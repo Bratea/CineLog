@@ -528,7 +528,7 @@ const periodLabel = computed(() => ({ year: `${selectedYear.value} 年`, month: 
 const watchedSubtitle = computed(() => `按${({ year: '年', month: '月', day: '日' })[statPeriod.value]}整理 · 共 ${filteredMovies.value.length} 部`)
 const displayedMovies = computed(() => filteredMovies.value.slice(0, homeDisplayLimit.value))
 const surfaceTransitionName = computed(() => transitionDirection.value === 'forward' ? 'surface-forward' : 'surface-back')
-const surfaceTransitionDuration = computed(() => ({ high: 680, medium: 340, low: 260 })[motionIntensity.value])
+const surfaceTransitionDuration = computed(() => ({ high: 700, medium: 520, low: 260 })[motionIntensity.value])
 const settingsTransitionName = computed(() => settingsDirection.value === 'forward' ? 'settings-forward' : 'settings-back')
 const surfacePage = computed(() => {
   if (currentPage.value === 'detail') return detailOrigin.value
@@ -849,7 +849,7 @@ function openDetailFromPoster(movie: Movie, source: Element | null) {
   selectedMovie.value = movie
   currentPage.value = 'detail'
   ensureTmdbDetails(movie)
-  window.setTimeout(() => { posterFlight.value = null }, 460)
+  window.setTimeout(() => { posterFlight.value = null }, motionIntensity.value === 'high' ? 380 : 420)
 }
 
 function openLibraryDetail(movie: Movie) {
@@ -864,6 +864,11 @@ function openLibraryDetail(movie: Movie) {
 }
 
 function openHomeListDetail(payload) {
+  if (motionIntensity.value === 'low') {
+    posterFlight.value = null
+    openDetail(payload.movie)
+    return
+  }
   openDetailFromPoster(payload.movie, payload.source)
 }
 
