@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } 
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
 import type { HttpResponse } from '@capacitor/core'
-import { ArrowDownUp, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, FileText, FolderTree, GripVertical, HardDrive, House, LayoutPanelTop, MoonStar, Pencil, Play, RefreshCw, Search, SlidersHorizontal, Star, Trash2, Upload, X } from 'lucide-vue-next'
+import { ArrowDownUp, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, FileText, FolderTree, GripVertical, HardDrive, House, LayoutPanelTop, MoonStar, Pencil, Play, Search, SlidersHorizontal, Star, Trash2, Upload, X } from 'lucide-vue-next'
 import MovieCarousel from './components/MovieCarousel.vue'
 import MovieList from './components/MovieList.vue'
 import MovieDetail from './components/MovieDetail.vue'
@@ -153,9 +153,11 @@ const homeDisplayLimit = ref(Number.isFinite(savedHomeDisplayLimit) && savedHome
 const homeCustomLimitOpen = ref(false)
 const homeCustomLimitInput = ref(String(homeDisplayLimit.value))
 const selectedYear = ref('2026')
-const selectedMovie = ref(null)
+const selectedMovie = ref<Movie | null>(null)
 const detailOrigin = ref('home')
 const detailEntry = ref('home')
+const detailPreviewStack = ref<Array<{ movie: Movie; entry: string }>>([])
+const previewSaveOpen = ref(false)
 const transitionDirection = ref('forward')
 const libraryQuery = ref('')
 const libraryYear = ref('all')
@@ -175,17 +177,16 @@ const avatarRingColor = ref(localStorage.getItem('movie-avatar-ring') || '#cba77
 const activeProfileColor = ref(null)
 const pendingProfileColor = ref('#ffffff')
 const profileColorPresets = ['#ffffff', '#e9f1ff', '#eee5f7', '#dff2e7', '#1d1e21', '#6b3fd4', '#b56576', '#2d6b50']
+const TMDB_API_BASE = 'https://api.themoviedb.org/3'
+const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p'
 const tmdbToken = ref(localStorage.getItem('movie-tmdb-token') || '')
-const tmdbApiBase = ref(localStorage.getItem('movie-tmdb-api-base') || 'https://api.themoviedb.org/3')
-const tmdbImageBase = ref(localStorage.getItem('movie-tmdb-image-base') || 'https://image.tmdb.org/t/p')
-type TmdbNetworkMode = 'hosts' | 'custom'
-const savedTmdbNetworkMode = localStorage.getItem('movie-tmdb-network-mode')
-const tmdbNetworkMode = ref<TmdbNetworkMode>(savedTmdbNetworkMode === 'custom' ? 'custom' : 'hosts')
-if (tmdbNetworkMode.value === 'hosts') {
-  tmdbApiBase.value = 'https://api.themoviedb.org/3'
-  tmdbImageBase.value = 'https://image.tmdb.org/t/p'
-}
-const tmdbEndpointRefreshState = ref('idle')
+const tmdbApiBase = ref(TMDB_API_BASE)
+const tmdbImageBase = ref(TMDB_IMAGE_BASE)
+localStorage.setItem('movie-tmdb-api-base', TMDB_API_BASE)
+localStorage.setItem('movie-tmdb-image-base', TMDB_IMAGE_BASE)
+localStorage.removeItem('movie-tmdb-network-mode')
+localStorage.removeItem('movie-tmdb-custom-api-base')
+localStorage.removeItem('movie-tmdb-custom-image-base')
 const tmdbTestState = ref('idle')
 const tmdbTestMessage = ref('')
 const expandedLibraryId = ref(null)
@@ -218,6 +219,24 @@ const addDatePickerOpen = ref(false)
 const addRating = ref(0)
 const addReview = ref('')
 const overviewExpanded = ref(false)
+const isPreviewDetail = computed(() => currentPage.value === 'detail' && detailPreviewStack.value.length > 0)
+const previewAddResult = computed(() => {
+  const movie = selectedMovie.value
+  if (!movie || !isPreviewDetail.value) return null
+  return {
+    id: movie.tmdbId ?? movie.id,
+    title: movie.title,
+    original_title: movie.original_title || movie.originalTitle || movie.title,
+    release_date: movie.release_date || movie.releaseDate || (movie.year ? `${movie.year}-01-01` : ''),
+    vote_average: movie.vote_average ?? movie.tmdbRating ?? 0,
+    vote_count: movie.vote_count ?? movie.tmdbVoteCount ?? 0,
+    original_language: movie.original_language || movie.filmInfo?.originalLanguage || '',
+    genre_ids: movie.genre_ids || (movie.genres || []).map((genre) => typeof genre === 'object' ? genre.id : null).filter(Boolean),
+    poster_path: movie.poster_path,
+    backdrop_path: movie.backdrop_path,
+    overview: movie.overview || '',
+  }
+})
 type NoticeItem = { id: number; title: string; message?: string; tone?: string; type?: string }
 const recordNotices = ref<NoticeItem[]>([])
 const libraryNotices = ref<NoticeItem[]>([])
@@ -568,15 +587,6 @@ watch(avatarUrl, (value) => localStorage.setItem('movie-avatar-url', value.trim(
 watch(profileBackgroundColor, (value) => localStorage.setItem('movie-profile-background', value))
 watch(avatarRingColor, (value) => localStorage.setItem('movie-avatar-ring', value))
 watch(tmdbToken, (value) => localStorage.setItem('movie-tmdb-token', value.trim()))
-watch(tmdbApiBase, (value) => {
-  localStorage.setItem('movie-tmdb-api-base', value.trim())
-  if (tmdbNetworkMode.value === 'custom') localStorage.setItem('movie-tmdb-custom-api-base', value.trim())
-})
-watch(tmdbImageBase, (value) => {
-  localStorage.setItem('movie-tmdb-image-base', value.trim())
-  if (tmdbNetworkMode.value === 'custom') localStorage.setItem('movie-tmdb-custom-image-base', value.trim())
-})
-watch(tmdbNetworkMode, (value) => localStorage.setItem('movie-tmdb-network-mode', value))
 watch(libraryTagLimit, (value) => localStorage.setItem('movie-library-tag-limit', String(value)))
 watch(libraryControlsSide, (value) => localStorage.setItem('movie-library-controls-side', value))
 watch(librarySortBy, (value) => localStorage.setItem('movie-library-sort', value))
@@ -758,6 +768,8 @@ function showHomeWatchNotice(movie) {
 }
 
 function openDetail(movie) {
+  detailPreviewStack.value = []
+  previewSaveOpen.value = false
   selectedMovie.value = movie
   detailOrigin.value = currentPage.value
   detailEntry.value = 'home'
@@ -799,6 +811,8 @@ function prependMovieRecords(records) {
 }
 
 function openDetailFromPoster(movie: Movie, source: Element | null) {
+  detailPreviewStack.value = []
+  previewSaveOpen.value = false
   const poster = source?.querySelector?.('.library-poster, .movie-list-poster')
   const posterRect = poster?.getBoundingClientRect()
   const phoneRect = phoneShell.value?.getBoundingClientRect()
@@ -828,6 +842,8 @@ function openDetailFromPoster(movie: Movie, source: Element | null) {
 }
 
 function openLibraryDetail(movie: Movie) {
+  detailPreviewStack.value = []
+  previewSaveOpen.value = false
   posterFlight.value = null
   detailOrigin.value = 'library'
   detailEntry.value = 'library'
@@ -841,6 +857,17 @@ function openHomeListDetail(payload) {
 }
 
 function closeDetail() {
+  if (previewSaveOpen.value) {
+    previewSaveOpen.value = false
+    addDatePickerOpen.value = false
+    return
+  }
+  const previousPreview = detailPreviewStack.value.pop()
+  if (previousPreview) {
+    selectedMovie.value = previousPreview.movie
+    detailEntry.value = previousPreview.entry
+    return
+  }
   transitionDirection.value = detailOrigin.value === 'home' ? 'back' : 'forward'
   currentPage.value = detailOrigin.value
   selectedMovie.value = null
@@ -1077,6 +1104,10 @@ function selectLibraryMediaType(type: string) {
     libraryMediaMenuOpen.value = false
     return
   }
+  if (previewSaveOpen.value) {
+    previewSaveOpen.value = false
+    return true
+  }
   libraryMediaType.value = type
   const closeDelay = ({ high: 300, medium: 220, low: 110 })[motionIntensity.value]
   window.setTimeout(() => {
@@ -1090,7 +1121,7 @@ async function testTmdbConnection() {
   const imageBase = tmdbImageBase.value.trim().replace(/\/$/, '')
   if (!token || !base || !imageBase) {
     tmdbTestState.value = 'error'
-    tmdbTestMessage.value = '请先填写 API 密钥、API 地址和图片地址。'
+    tmdbTestMessage.value = '请先填写 API 密钥。'
     return
   }
   try {
@@ -1105,7 +1136,7 @@ async function testTmdbConnection() {
     return
   }
   tmdbTestState.value = 'testing'
-  tmdbTestMessage.value = tmdbNetworkMode.value === 'hosts' ? '正在通过 CheckTMDB hosts 连接…' : '正在连接自定义 TMDB 服务…'
+  tmdbTestMessage.value = '正在通过代理连接 TMDB…'
   try {
     const request = tmdbRequest(`${base}/configuration`)
     const response = await executeTmdbRequest(request)
@@ -1122,39 +1153,12 @@ async function testTmdbConnection() {
       throw new Error(`HTTP ${response.status}`)
     }
     tmdbTestState.value = 'success'
-    tmdbTestMessage.value = tmdbNetworkMode.value === 'hosts' ? 'CheckTMDB hosts 连接成功。' : '自定义 TMDB 服务连接成功。'
+    tmdbTestMessage.value = 'TMDB 连接成功。'
   } catch (error) {
     tmdbTestState.value = 'error'
-    const hint = tmdbNetworkMode.value === 'hosts'
-      ? '请确认已将 CheckTMDB 最新 hosts 写入系统或路由器，然后重试。'
-      : '请检查自定义 API、图片地址和 HTTPS 证书。'
     const reason = error instanceof Error ? error.message : String(error)
-    tmdbTestMessage.value = `连接失败（${reason}）。${hint}`
+    tmdbTestMessage.value = `连接失败（${reason}）。请确认代理已开启，并检查 API 密钥后重试。`
   }
-}
-
-function refreshTmdbEndpoints() {
-  if (tmdbNetworkMode.value === 'hosts') {
-    tmdbApiBase.value = 'https://api.themoviedb.org/3'
-    tmdbImageBase.value = 'https://image.tmdb.org/t/p'
-  } else {
-    tmdbApiBase.value = localStorage.getItem('movie-tmdb-custom-api-base') || ''
-    tmdbImageBase.value = localStorage.getItem('movie-tmdb-custom-image-base') || ''
-  }
-  tmdbTestState.value = 'idle'
-  tmdbTestMessage.value = ''
-  tmdbEndpointRefreshState.value = 'refreshed'
-  window.setTimeout(() => { tmdbEndpointRefreshState.value = 'idle' }, 1400)
-}
-
-function switchTmdbNetworkMode(mode: TmdbNetworkMode) {
-  if (tmdbNetworkMode.value === mode) return
-  if (tmdbNetworkMode.value === 'custom') {
-    localStorage.setItem('movie-tmdb-custom-api-base', tmdbApiBase.value.trim())
-    localStorage.setItem('movie-tmdb-custom-image-base', tmdbImageBase.value.trim())
-  }
-  tmdbNetworkMode.value = mode
-  refreshTmdbEndpoints()
 }
 
 function tmdbRequest(url, params = {}) {
@@ -1189,7 +1193,7 @@ async function executeTmdbRequest(request) {
       const message = String(error?.message || error || '')
       if (/timeout|timed out/i.test(message)) throw new Error('连接超时')
       if (/unable to resolve host|unknown host|dns/i.test(message)) throw new Error('手机无法解析 TMDB 域名')
-      if (/cleartext/i.test(message)) throw new Error('自定义地址必须使用 HTTPS')
+      if (/cleartext/i.test(message)) throw new Error('TMDB 官方服务必须使用 HTTPS')
       throw new Error(message || '手机网络请求失败')
     }
   }
@@ -1638,12 +1642,7 @@ function showRecordNotice(title, message, type = 'success') {
   pushNotice(recordNotices, { title, message, type }, RECORD_NOTICE_DURATION)
 }
 
-function viewTmdbResult(result) {
-  if (selectedTmdbResult.value?.id === result.id) {
-    selectedTmdbResult.value = null
-    return
-  }
-  selectedTmdbResult.value = result
+function resetAddForm() {
   addMediaType.value = '电影'
   addMediaMenuOpen.value = false
   addWatched.value = false
@@ -1652,6 +1651,72 @@ function viewTmdbResult(result) {
   addRating.value = 0
   addReview.value = ''
   overviewExpanded.value = false
+}
+
+function viewTmdbResult(result) {
+  if (selectedTmdbResult.value?.id === result.id) {
+    selectedTmdbResult.value = null
+    return
+  }
+  selectedTmdbResult.value = result
+  resetAddForm()
+}
+
+function openTmdbPreview(source) {
+  const tmdbId = Number(source?.tmdbId ?? source?.id)
+  if (!selectedMovie.value || !Number.isFinite(tmdbId) || tmdbId <= 0 || Number(selectedMovie.value.tmdbId) === tmdbId) return
+  detailPreviewStack.value.push({ movie: selectedMovie.value, entry: detailEntry.value })
+  const releaseDate = source.release_date || source.releaseDate || ''
+  const preview: Movie = {
+    id: `preview-tmdb-${tmdbId}-${Date.now()}`,
+    tmdbId,
+    title: source.title || source.original_title || '未命名影片',
+    originalTitle: source.original_title || source.originalTitle || source.title || '',
+    original_title: source.original_title || source.originalTitle || source.title || '',
+    year: source.year || releaseDate.slice(0, 4) || '待定',
+    releaseDate,
+    release_date: releaseDate,
+    watched: false,
+    poster: 'tmdb',
+    poster_path: source.poster_path || null,
+    backdrop_path: source.backdrop_path || null,
+    overview: source.overview || '',
+    tmdbRating: source.vote_average ?? source.tmdbRating ?? null,
+    tmdbVoteCount: source.vote_count ?? source.tmdbVoteCount ?? 0,
+    vote_average: source.vote_average ?? source.tmdbRating ?? null,
+    vote_count: source.vote_count ?? source.tmdbVoteCount ?? 0,
+    genre_ids: source.genre_ids || [],
+    original_language: source.original_language || '',
+    detailState: 'idle',
+  }
+  selectedMovie.value = preview
+  detailEntry.value = 'preview'
+  currentPage.value = 'detail'
+  ensureTmdbDetails(preview)
+}
+
+function openPreviewSaveDialog() {
+  if (!previewAddResult.value) return
+  resetAddForm()
+  previewSaveOpen.value = true
+}
+
+function closePreviewSaveDialog() {
+  previewSaveOpen.value = false
+  addDatePickerOpen.value = false
+}
+
+function savePreviewMovie() {
+  if (!previewAddResult.value) return
+  const savedMovie = addTmdbMovie(previewAddResult.value)
+  if (!savedMovie) return
+  const firstEntry = detailPreviewStack.value[0]?.entry || 'home'
+  detailPreviewStack.value = []
+  previewSaveOpen.value = false
+  addDatePickerOpen.value = false
+  selectedMovie.value = savedMovie
+  detailEntry.value = firstEntry
+  ensureTmdbDetails(savedMovie)
 }
 
 function chooseAddMediaType(type) {
@@ -1669,9 +1734,10 @@ function handleAddWatchedChange() {
 }
 
 function addTmdbMovie(result) {
-  if (movieRecords.value.some((movie) => String(movie.id) === `tmdb-${result.id}`)) {
+  const existingMovie = movieRecords.value.find((movie) => String(movie.id) === `tmdb-${result.id}`)
+  if (existingMovie) {
     showRecordNotice('无需重复添加', '这部影片已经在你的记录中了。', 'warning')
-    return
+    return existingMovie
   }
   const movie = {
     id: `tmdb-${result.id}`,
@@ -1701,6 +1767,7 @@ function addTmdbMovie(result) {
   activeWatchStat.value = addWatched.value ? 'watched' : 'unwatched'
   selectedTmdbResult.value = null
   showRecordNotice('添加成功', `《${result.title || result.original_title}》已加入${addWatched.value ? '已观看' : '未观看'}。`)
+  return movie
 }
 
 async function ensureTmdbDetails(movie) {
@@ -1742,16 +1809,22 @@ async function ensureTmdbDetails(movie) {
       tmdbId: detail.id,
       title: detail.title || movie.title,
       originalTitle: detail.original_title || movie.originalTitle,
+      original_title: detail.original_title || movie.original_title || movie.originalTitle,
       overview: detail.overview || movie.overview,
       backdrop_path: detail.backdrop_path || movie.backdrop_path,
       poster_path: detail.poster_path || movie.poster_path,
       releaseDate: detail.release_date || movie.releaseDate,
+      release_date: detail.release_date || movie.release_date || movie.releaseDate,
       year: detail.release_date?.slice(0, 4) || movie.year,
       runtime: detail.runtime || null,
       genres: detail.genres || [],
       tagline: detail.tagline || '',
       tmdbRating: detail.vote_average ? Number(detail.vote_average.toFixed(1)) : movie.tmdbRating,
       tmdbVoteCount: detail.vote_count || movie.tmdbVoteCount || 0,
+      vote_average: detail.vote_average ?? movie.vote_average ?? movie.tmdbRating,
+      vote_count: detail.vote_count || movie.vote_count || movie.tmdbVoteCount || 0,
+      genre_ids: (detail.genres || []).map((genre) => genre.id).filter(Boolean),
+      original_language: detail.original_language || movie.original_language || '',
       popularity: detail.popularity || movie.popularity || 0,
       certification,
       detailVersion: 2,
@@ -1776,7 +1849,7 @@ async function ensureTmdbDetails(movie) {
         overview: collectionDetail.overview,
         poster_path: collectionDetail.poster_path,
         backdrop_path: collectionDetail.backdrop_path,
-        parts: (collectionDetail.parts || []).sort((a, b) => String(a.release_date || '').localeCompare(String(b.release_date || ''))).map((part) => ({ id: part.id, title: part.title, year: part.release_date?.slice(0, 4) || '', poster_path: part.poster_path })),
+        parts: (collectionDetail.parts || []).sort((a, b) => String(a.release_date || '').localeCompare(String(b.release_date || ''))).map((part) => ({ id: part.id, title: part.title, original_title: part.original_title, year: part.release_date?.slice(0, 4) || '', release_date: part.release_date || '', poster_path: part.poster_path, backdrop_path: part.backdrop_path, overview: part.overview || '', vote_average: part.vote_average || 0, vote_count: part.vote_count || 0, genre_ids: part.genre_ids || [], original_language: part.original_language || '' })),
       } : null,
       director: director ? { id: director.id, name: director.name, role: '导演', profile_path: director.profile_path } : null,
       cast: (detail.credits?.cast || []).slice(0, 8).map((person) => ({
@@ -1801,13 +1874,13 @@ async function ensureTmdbDetails(movie) {
 }
 
 function updateWatched(value) {
-  if (!selectedMovie.value) return
+  if (!selectedMovie.value || isPreviewDetail.value) return
   selectedMovie.value.watched = value
   if (value && !selectedMovie.value.watchedDate) selectedMovie.value.watchedDate = localDateKey()
 }
 
 function updateMovieRecord(record) {
-  if (!selectedMovie.value) return
+  if (!selectedMovie.value || isPreviewDetail.value) return
   Object.assign(selectedMovie.value, {
     personalRating: record.rating || null,
     rating: record.rating || null,
@@ -1831,7 +1904,7 @@ async function requestPersonDetails(person) {
       biography: detail.biography || '',
       birthday: detail.birthday || '',
       placeOfBirth: detail.place_of_birth || '',
-      knownFor: (detail.movie_credits?.cast || []).filter((work) => work.poster_path).sort((a, b) => (b.popularity || 0) - (a.popularity || 0)).slice(0, 8).map((work) => ({ id: work.id, title: work.title, year: work.release_date?.slice(0, 4) || '', poster: `${imageBase}/w185${work.poster_path}` })),
+      knownFor: (detail.movie_credits?.cast || []).filter((work) => work.poster_path).sort((a, b) => (b.popularity || 0) - (a.popularity || 0)).slice(0, 8).map((work) => ({ id: work.id, title: work.title, original_title: work.original_title, year: work.release_date?.slice(0, 4) || '', release_date: work.release_date || '', poster: `${imageBase}/w185${work.poster_path}`, poster_path: work.poster_path, backdrop_path: work.backdrop_path, overview: work.overview || '', vote_average: work.vote_average || 0, vote_count: work.vote_count || 0, genre_ids: work.genre_ids || [], original_language: work.original_language || '' })),
       detailState: 'success',
     })
   } catch (error) {
@@ -1840,6 +1913,7 @@ async function requestPersonDetails(person) {
 }
 
 function navigateDetail(direction) {
+  if (isPreviewDetail.value) return
   const currentIndex = movieRecords.value.findIndex((movie) => movie.id === selectedMovie.value?.id)
   if (currentIndex < 0 || movieRecords.value.length < 2) return
   const nextIndex = (currentIndex + direction + movieRecords.value.length) % movieRecords.value.length
@@ -2162,7 +2236,26 @@ function navigateDetail(direction) {
 
       <div v-if="posterFlight" class="poster-flight" :class="`poster-flight--${posterFlight.movie.poster}`" :style="{ '--flight-left': `${posterFlight.left}px`, '--flight-top': `${posterFlight.top}px`, '--flight-width': `${posterFlight.width}px`, '--flight-height': `${posterFlight.height}px`, ...libraryPosterStyle(posterFlight.movie) }" aria-hidden="true"></div>
 
-      <MovieDetail ref="movieDetail" v-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" :entry-mode="detailEntry" :motion-intensity="motionIntensity" :image-base="tmdbImageBase" :layout-order="detailLayout.map((item) => item.id)" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" @update-record="updateMovieRecord" @request-person="requestPersonDetails" />
+      <MovieDetail ref="movieDetail" v-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" :entry-mode="detailEntry" :motion-intensity="motionIntensity" :image-base="tmdbImageBase" :layout-order="detailLayout.map((item) => item.id)" :preview-mode="isPreviewDetail" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" @update-record="updateMovieRecord" @request-person="requestPersonDetails" @preview-movie="openTmdbPreview" @request-save="openPreviewSaveDialog" />
+
+      <Transition name="tmdb-modal">
+        <div v-if="previewSaveOpen && previewAddResult" class="tmdb-detail-backdrop preview-save-backdrop" @click.self="closePreviewSaveDialog">
+          <section class="tmdb-detail-modal" role="dialog" aria-modal="true" :aria-label="`${previewAddResult.title} 添加详情`">
+            <header class="tmdb-modal-header"><div class="tmdb-result-poster" :style="tmdbPoster(previewAddResult) ? { backgroundImage: `url(${tmdbPoster(previewAddResult)})` } : {}"></div><div><small>{{ previewAddResult.release_date?.slice(0, 4) || '待定' }} · TMDB {{ previewAddResult.vote_average?.toFixed(1) || '暂无评分' }}</small><h3>{{ previewAddResult.title }}</h3><p>{{ previewAddResult.original_title || '暂无原名' }}</p></div><button aria-label="关闭添加" @click="closePreviewSaveDialog"><X :size="17" /></button></header>
+            <div class="tmdb-modal-scroll">
+              <section class="tmdb-info-card" :class="{ expanded: overviewExpanded }"><div class="tmdb-card-title"><span>影片介绍</span><small>{{ previewAddResult.release_date?.slice(0, 4) || '年份待定' }}</small></div><p>{{ previewAddResult.overview || '暂无剧情简介。' }}</p><button class="tmdb-overview-toggle" :aria-expanded="overviewExpanded" @click="overviewExpanded = !overviewExpanded">{{ overviewExpanded ? '收起' : '展开' }}<ChevronDown :size="12" /></button></section>
+              <section class="tmdb-add-card">
+                <div class="tmdb-card-title"><span>添加设置</span><small>完善你的记录</small></div>
+                <div class="tmdb-field"><span>类型</span><div class="tmdb-media-select"><button type="button" class="tmdb-media-select__trigger" :class="{ open: addMediaMenuOpen }" aria-haspopup="listbox" :aria-expanded="addMediaMenuOpen" @click="addMediaMenuOpen = !addMediaMenuOpen"><span>{{ addMediaType }}</span><ChevronDown :size="14" /></button><Transition name="media-menu"><div v-if="addMediaMenuOpen" class="tmdb-media-select__menu" role="listbox" aria-label="选择内容类型"><button v-for="type in libraryMediaTypes" :key="type" type="button" role="option" :aria-selected="addMediaType === type" :class="{ selected: addMediaType === type }" @click="chooseAddMediaType(type)"><span>{{ type }}</span><Check v-if="addMediaType === type" :size="13" /></button></div></Transition></div></div>
+                <div class="tmdb-watch-row" :class="{ watched: addWatched }"><label class="tmdb-watch-toggle"><span><strong>是否已观看</strong><small>{{ addWatched ? '记录评分与观后感' : '加入待看清单' }}</small></span><input v-model="addWatched" type="checkbox" @change="handleAddWatchedChange" /><i aria-hidden="true"></i></label><Transition name="watch-date"><div v-if="addWatched" class="tmdb-watch-date-wrap"><button type="button" class="tmdb-watch-date" :class="{ open: addDatePickerOpen }" aria-haspopup="dialog" :aria-expanded="addDatePickerOpen" @click="toggleWatchedDatePicker"><span><small>观看日期</small><strong>{{ addWatchedDateLabel }}</strong></span><ChevronDown :size="13" /></button></div></Transition></div>
+                <Transition name="watched-fields"><div v-if="addWatched" class="tmdb-watched-fields"><div class="tmdb-rating"><span>个人评分</span><div><button v-for="score in 5" :key="score" type="button" :class="{ selected: addRating >= score * 2 }" :aria-label="`${score * 2} 分`" @click="addRating = score * 2"><Star :size="18" /></button><strong>{{ addRating || '—' }}<small>/ 10</small></strong></div></div><label class="tmdb-review"><span>个人评价</span><textarea v-model="addReview" rows="3" placeholder="写下看完后的感受……"></textarea></label></div></Transition>
+                <button class="tmdb-confirm-add" @click="savePreviewMovie"><Check :size="15" />确认添加</button>
+              </section>
+            </div>
+            <DatePickerDialog v-model="addWatchedDate" v-model:open="addDatePickerOpen" title="选择观看日期" />
+          </section>
+        </div>
+      </Transition>
 
       <Transition name="settings-shell">
         <section v-if="currentPage === 'settings'" class="personal-settings" @input.capture="handleSettingsAutoInput">
@@ -2172,7 +2265,7 @@ function navigateDetail(direction) {
                 <button :aria-label="settingsSection === 'hub' ? '返回首页' : '返回设置'" @click="backFromSettings"><ChevronLeft :size="22" /></button>
                 <div>
                   <h1>{{ settingsSection === 'hub' ? '设置' : settingsSection === 'profile' ? '个人信息' : settingsSection === 'home' ? '首页编辑' : settingsSection === 'library' ? '列表设置' : settingsSection === 'categories' ? '分类设置' : settingsSection === 'detail-layout' ? '电影详情布局' : settingsSection === 'animation' ? '动画强度设置' : settingsSection === 'database' ? '数据库设置' : 'TMDB 设置' }}</h1>
-                  <p>{{ settingsSection === 'hub' ? '把常用设置收进清晰的分类里。' : settingsSection === 'profile' ? '头像和名称会显示在首页。' : settingsSection === 'home' ? '控制首页的统计与展示数量。' : settingsSection === 'library' ? '统一管理标签、排序与工具位置。' : settingsSection === 'categories' ? '管理两层分类、自定义内容与显示顺序。' : settingsSection === 'detail-layout' ? '调整详情模块的优先展示顺序。' : settingsSection === 'animation' ? '统一控制所有页面的动态幅度与启动动画。' : settingsSection === 'database' ? '查看当前设备的本地数据库状态。' : '配置数据接口与国内网络访问。' }}</p>
+                  <p>{{ settingsSection === 'hub' ? '把常用设置收进清晰的分类里。' : settingsSection === 'profile' ? '头像和名称会显示在首页。' : settingsSection === 'home' ? '控制首页的统计与展示数量。' : settingsSection === 'library' ? '统一管理标签、排序与工具位置。' : settingsSection === 'categories' ? '管理两层分类、自定义内容与显示顺序。' : settingsSection === 'detail-layout' ? '调整详情模块的优先展示顺序。' : settingsSection === 'animation' ? '统一控制所有页面的动态幅度与启动动画。' : settingsSection === 'database' ? '查看当前设备的本地数据库状态。' : '配置 API 密钥与代理连接。' }}</p>
                 </div>
               </header>
 
@@ -2198,7 +2291,7 @@ function navigateDetail(direction) {
                   <button @click="openSettingsSection('detail-layout')"><i class="settings-icon settings-icon--detail"><LayoutPanelTop :size="18" /></i><span><strong>电影详情布局</strong><small>{{ detailLayout.length }} 个显示 · {{ hiddenDetailLayout.length }} 个隐藏</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('animation')"><i class="settings-icon settings-icon--animation"><Play :size="18" /></i><span><strong>动画强度设置</strong><small>当前强度：{{ motionIntensity === 'high' ? '高' : motionIntensity === 'medium' ? '中' : '低' }}</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('database')"><i class="settings-icon settings-icon--database"><HardDrive :size="18" /></i><span><strong>数据库设置</strong><small>本地引擎、连接状态与数据概况</small></span><ChevronRight :size="18" /></button>
-                  <button @click="openSettingsSection('tmdb')"><i class="settings-icon settings-icon--tmdb"><Database :size="18" /></i><span><strong>TMDB 设置</strong><small>API、图片与国内网络</small></span><ChevronRight :size="18" /></button>
+                  <button @click="openSettingsSection('tmdb')"><i class="settings-icon settings-icon--tmdb"><Database :size="18" /></i><span><strong>TMDB 设置</strong><small>API 密钥与代理连接</small></span><ChevronRight :size="18" /></button>
                 </div>
                 <p class="settings-footnote settings-piece" style="--settings-order: 3">所有设置只保存在当前浏览器中。</p>
               </template>
@@ -2302,21 +2395,15 @@ function navigateDetail(direction) {
               </template>
 
               <template v-else>
-                <div class="network-options settings-piece" style="--settings-order: 1" role="group" aria-label="TMDB 网络方式">
-                  <button :class="{ selected: tmdbNetworkMode === 'hosts' }" @click="switchTmdbNetworkMode('hosts')"><strong>CheckTMDB hosts</strong><span>国内推荐</span></button>
-                  <button :class="{ selected: tmdbNetworkMode === 'custom' }" @click="switchTmdbNetworkMode('custom')"><strong>自定义地址</strong><span>反代或镜像</span></button>
-                </div>
-                <button class="tmdb-refresh-endpoints settings-piece" :class="{ refreshed: tmdbEndpointRefreshState === 'refreshed' }" style="--settings-order: 2" @click="refreshTmdbEndpoints"><RefreshCw :size="16" /><span><strong>{{ tmdbEndpointRefreshState === 'refreshed' ? '当前地址已刷新' : '刷新当前地址' }}</strong><small>{{ tmdbNetworkMode === 'hosts' ? '重新载入 CheckTMDB hosts 对应的 TMDB 域名' : '重新载入已保存的自定义地址' }}</small></span></button>
-                <div class="tmdb-notice settings-piece" style="--settings-order: 3">
+                <div class="tmdb-notice settings-piece" style="--settings-order: 1">
                   <Database :size="20" />
-                  <div><strong>{{ tmdbNetworkMode === 'hosts' ? '使用 CheckTMDB 整理的 hosts' : '使用你信任的服务地址' }}</strong><p>{{ tmdbNetworkMode === 'hosts' ? 'hosts 会把 TMDB 域名指向可用 IP，应用不再强制官方 DNS。请将下方最新映射写入系统或路由器。' : '支持 HTTPS 反代或镜像，API 与图片地址会分别保存。' }}</p></div>
+                  <div><strong>TMDB 官方服务</strong><p>应用固定连接 TMDB 官方 API 与图片服务。</p></div>
                 </div>
-                <div class="tmdb-native-warning settings-piece" style="--settings-order: 3"><strong>{{ tmdbNetworkMode === 'hosts' ? '需在系统或路由器生效' : '自定义地址必须使用 HTTPS' }}</strong><span>{{ tmdbNetworkMode === 'hosts' ? 'Android App 无法自动修改系统 hosts；更新后重启 App 再测试。' : '可填写你之前使用的反代或镜像地址，无需额外写 443 端口。' }}</span></div>
-                <div class="settings-group settings-piece" style="--settings-order: 3"><label for="tmdb-token">API 密钥</label><input id="tmdb-token" v-model.trim="tmdbToken" data-auto-save type="password" autocomplete="off" placeholder="输入 TMDB v3 API 密钥" /><small>支持 v3 API 密钥；旧的 Read Access Token 也会自动识别。密钥只保存在当前浏览器。</small></div>
-                <div class="settings-group settings-piece" style="--settings-order: 4"><label for="tmdb-api">API 地址</label><input id="tmdb-api" v-model.trim="tmdbApiBase" data-auto-save inputmode="url" :readonly="tmdbNetworkMode === 'hosts'" :placeholder="tmdbNetworkMode === 'custom' ? 'https://tmdb.example.com/tmdb-api' : 'https://api.themoviedb.org/3'" /><small>{{ tmdbNetworkMode === 'hosts' ? '域名保持不变，实际 IP 由 CheckTMDB hosts 接管。' : '填写你的 HTTPS API 反代或镜像地址。' }}</small></div>
-                <div class="settings-group settings-piece" style="--settings-order: 5"><label for="tmdb-image">图片地址</label><input id="tmdb-image" v-model.trim="tmdbImageBase" data-auto-save inputmode="url" :readonly="tmdbNetworkMode === 'hosts'" :placeholder="tmdbNetworkMode === 'custom' ? 'https://tmdb.example.com/tmdb-image' : 'https://image.tmdb.org/t/p'" /><small>{{ tmdbNetworkMode === 'hosts' ? '海报与剧照同样跟随 CheckTMDB hosts 映射。' : '填写镜像对应的图片根地址。' }}</small></div>
-                <div v-if="tmdbNetworkMode === 'hosts'" class="hosts-links settings-piece" style="--settings-order: 6"><a href="https://raw.githubusercontent.com/cnwikee/CheckTMDB/refs/heads/main/Tmdb_host_ipv4" target="_blank" rel="noreferrer">IPv4 hosts <ArrowUpRight :size="13" /></a><a href="https://raw.githubusercontent.com/cnwikee/CheckTMDB/refs/heads/main/Tmdb_host_ipv6" target="_blank" rel="noreferrer">IPv6 hosts <ArrowUpRight :size="13" /></a></div>
-                <button class="tmdb-test settings-piece" style="--settings-order: 7" :disabled="tmdbTestState === 'testing'" @click="testTmdbConnection">{{ tmdbTestState === 'testing' ? '正在测试…' : '测试连接' }}</button>
+                <div class="tmdb-native-warning settings-piece" style="--settings-order: 2"><strong>需要开启代理</strong><span>请先在手机或电脑开启可访问 TMDB 的代理，再测试连接。</span></div>
+                <div class="settings-group settings-piece" style="--settings-order: 3"><label for="tmdb-token">API 密钥</label><input id="tmdb-token" v-model.trim="tmdbToken" data-auto-save type="password" autocomplete="off" placeholder="输入 TMDB v3 API 密钥" /><small>支持 v3 API 密钥或 v4 Read Access Token，密钥只保存在当前设备。</small><a class="tmdb-api-key-link" href="https://www.themoviedb.org/settings/api" target="_blank" rel="noreferrer">点击前往获取 API 密钥 <ArrowUpRight :size="14" /></a></div>
+                <div class="settings-group settings-piece" style="--settings-order: 4"><label for="tmdb-api">API 地址</label><input id="tmdb-api" v-model="tmdbApiBase" readonly /><small>固定使用 TMDB 官方 API。</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 5"><label for="tmdb-image">图片地址</label><input id="tmdb-image" v-model="tmdbImageBase" readonly /><small>固定使用 TMDB 官方图片服务。</small></div>
+                <button class="tmdb-test settings-piece" style="--settings-order: 6" :disabled="tmdbTestState === 'testing'" @click="testTmdbConnection">{{ tmdbTestState === 'testing' ? '正在测试…' : '测试连接' }}</button>
                 <p v-if="tmdbTestMessage" class="tmdb-result" :class="`is-${tmdbTestState}`">{{ tmdbTestMessage }}</p>
               </template>
             </div>
