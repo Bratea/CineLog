@@ -28,7 +28,10 @@ const isNativeApp = Capacitor.isNativePlatform()
 const STARTUP_ANIMATION_ENABLED_KEY = 'cinelog-startup-animation-enabled'
 const MOTION_INTENSITY_KEY = 'cinelog-motion-intensity'
 const THEME_MODE_KEY = 'cinelog-theme-mode'
+const HOME_VIEW_MODE_KEY = 'cinelog-home-view-mode'
 const MOVIE_RECORDS_STORAGE_KEY = 'movie-records'
+const NOTICE_DURATION = 1700
+const RECORD_NOTICE_DURATION = 2000
 const LEGACY_SAMPLE_POSTERS = new Set(['pop', 'demon', 'crayon', 'coco'])
 type ThemeMode = 'system' | 'light' | 'dark'
 type MotionIntensity = 'high' | 'medium' | 'low'
@@ -38,7 +41,7 @@ const themeMode = ref<ThemeMode>(storedThemeMode === 'light' || storedThemeMode 
 const motionIntensity = ref<MotionIntensity>(
   storedMotionIntensity === 'high' || storedMotionIntensity === 'medium' || storedMotionIntensity === 'low'
     ? storedMotionIntensity
-    : isNativeApp ? 'medium' : 'high',
+    : 'high',
 )
 const systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)')
 const systemDark = ref(systemThemeQuery.matches)
@@ -52,6 +55,7 @@ const statusSwitching = ref(false)
 let startupAnimationTimer
 let viewModeSwitchTimer
 let statusSwitchTimer
+const buttonFeedbackAnimations = new WeakMap<HTMLButtonElement, Animation>()
 
 function completeStartupAnimation() {
   if (!showStartupAnimation.value) return
@@ -139,7 +143,8 @@ const activeTab = ref('home')
 const addOpen = ref(false)
 const username = ref(localStorage.getItem('movie-username') || '通通')
 const activeWatchStat = ref('watched')
-const viewMode = ref('cards')
+const storedHomeViewMode = localStorage.getItem(HOME_VIEW_MODE_KEY)
+const viewMode = ref<'cards' | 'list'>(storedHomeViewMode === 'list' ? 'list' : 'cards')
 const homeSwapTransition = ref('card-swap')
 const savedStatPeriod = localStorage.getItem('movie-stat-period')
 const statPeriod = ref(['year', 'month', 'day'].includes(savedStatPeriod || '') ? savedStatPeriod : 'year')
@@ -169,12 +174,17 @@ const profileBackgroundColor = ref(localStorage.getItem('movie-profile-backgroun
 const avatarRingColor = ref(localStorage.getItem('movie-avatar-ring') || '#cba777')
 const activeProfileColor = ref(null)
 const pendingProfileColor = ref('#ffffff')
-const profileSaveState = ref('idle')
 const profileColorPresets = ['#ffffff', '#e9f1ff', '#eee5f7', '#dff2e7', '#1d1e21', '#6b3fd4', '#b56576', '#2d6b50']
 const tmdbToken = ref(localStorage.getItem('movie-tmdb-token') || '')
-const tmdbApiBase = ref('https://api.themoviedb.org/3')
-const tmdbImageBase = ref('https://image.tmdb.org/t/p')
-localStorage.setItem('movie-tmdb-network-mode', 'official')
+const tmdbApiBase = ref(localStorage.getItem('movie-tmdb-api-base') || 'https://api.themoviedb.org/3')
+const tmdbImageBase = ref(localStorage.getItem('movie-tmdb-image-base') || 'https://image.tmdb.org/t/p')
+type TmdbNetworkMode = 'hosts' | 'custom'
+const savedTmdbNetworkMode = localStorage.getItem('movie-tmdb-network-mode')
+const tmdbNetworkMode = ref<TmdbNetworkMode>(savedTmdbNetworkMode === 'custom' ? 'custom' : 'hosts')
+if (tmdbNetworkMode.value === 'hosts') {
+  tmdbApiBase.value = 'https://api.themoviedb.org/3'
+  tmdbImageBase.value = 'https://image.tmdb.org/t/p'
+}
 const tmdbEndpointRefreshState = ref('idle')
 const tmdbTestState = ref('idle')
 const tmdbTestMessage = ref('')
@@ -498,7 +508,13 @@ const displayedMovies = computed(() => filteredMovies.value.slice(0, homeDisplay
 const surfaceTransitionName = computed(() => transitionDirection.value === 'forward' ? 'surface-forward' : 'surface-back')
 const surfaceTransitionDuration = computed(() => ({ high: 720, medium: 480, low: 260 })[motionIntensity.value])
 const settingsTransitionName = computed(() => settingsDirection.value === 'forward' ? 'settings-forward' : 'settings-back')
-const surfacePage = computed(() => currentPage.value === 'detail' ? detailOrigin.value : currentPage.value)
+const surfacePage = computed(() => {
+  if (currentPage.value === 'detail') return detailOrigin.value
+  // Keep the home surface mounted behind settings. Rebuilding it while the
+  // settings shell exits can leave Android WebView showing a transparent frame.
+  if (currentPage.value === 'settings') return 'home'
+  return currentPage.value
+})
 const libraryYears = computed(() => [...new Set(movieRecords.value.map((movie) => movie.year))].sort().reverse())
 const libraryYearOptions = computed(() => {
   const currentYear = new Date().getFullYear()
@@ -547,19 +563,20 @@ const libraryMovies = computed(() => {
 watch(username, (value) => localStorage.setItem('movie-username', value || '用户'))
 watch(statPeriod, (value) => localStorage.setItem('movie-stat-period', value))
 watch(homeDisplayLimit, (value) => localStorage.setItem('movie-home-limit', String(value)))
+watch(viewMode, (value) => localStorage.setItem(HOME_VIEW_MODE_KEY, value))
 watch(avatarUrl, (value) => localStorage.setItem('movie-avatar-url', value.trim()))
 watch(profileBackgroundColor, (value) => localStorage.setItem('movie-profile-background', value))
 watch(avatarRingColor, (value) => localStorage.setItem('movie-avatar-ring', value))
-watch([username, avatarUrl, profileBackgroundColor, avatarRingColor], () => {
-  if (profileSaveState.value === 'saved') profileSaveState.value = 'dirty'
-})
 watch(tmdbToken, (value) => localStorage.setItem('movie-tmdb-token', value.trim()))
 watch(tmdbApiBase, (value) => {
   localStorage.setItem('movie-tmdb-api-base', value.trim())
+  if (tmdbNetworkMode.value === 'custom') localStorage.setItem('movie-tmdb-custom-api-base', value.trim())
 })
 watch(tmdbImageBase, (value) => {
   localStorage.setItem('movie-tmdb-image-base', value.trim())
+  if (tmdbNetworkMode.value === 'custom') localStorage.setItem('movie-tmdb-custom-image-base', value.trim())
 })
+watch(tmdbNetworkMode, (value) => localStorage.setItem('movie-tmdb-network-mode', value))
 watch(libraryTagLimit, (value) => localStorage.setItem('movie-library-tag-limit', String(value)))
 watch(libraryControlsSide, (value) => localStorage.setItem('movie-library-controls-side', value))
 watch(librarySortBy, (value) => localStorage.setItem('movie-library-sort', value))
@@ -732,12 +749,12 @@ function markWatched(payload) {
     if (!movie.watchedDate) movie.watchedDate = localDateKey()
   }
   if (typeof payload === 'object' && payload.source === 'carousel-swipe') {
-    pushNotice(homeNotices, { title: '已完成观看', message: `《${payload.title || movie?.title || '这部电影'}》已移入已观看`, tone: 'success' }, 2400)
+    pushNotice(homeNotices, { title: '已完成观看', message: `《${payload.title || movie?.title || '这部电影'}》已移入已观看`, tone: 'success' }, NOTICE_DURATION)
   }
 }
 
 function showHomeWatchNotice(movie) {
-  pushNotice(homeNotices, { title: '再点一次确认', message: `将《${movie.title}》设为已观看`, tone: 'warning' }, 2400)
+  pushNotice(homeNotices, { title: '再点一次确认', message: `将《${movie.title}》设为已观看`, tone: 'warning' }, NOTICE_DURATION)
 }
 
 function openDetail(movie) {
@@ -891,6 +908,29 @@ function backFromSettings() {
   currentPage.value = 'home'
 }
 
+function animateButtonFeedback(event: MouseEvent) {
+  const target = (event.target as HTMLElement | null)?.closest?.('button') as HTMLButtonElement | null
+  if (!target || target.disabled) return
+  const intensity: MotionIntensity = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'low' : motionIntensity.value
+  const frames = {
+    high: [{ scale: '1' }, { scale: '.88', offset: .32 }, { scale: '1.065', offset: .7 }, { scale: '1' }],
+    medium: [{ scale: '1' }, { scale: '.94', offset: .4 }, { scale: '1.025', offset: .76 }, { scale: '1' }],
+    low: [{ scale: '1' }, { scale: '.975', offset: .5 }, { scale: '1' }],
+  }[intensity]
+  const duration = ({ high: 460, medium: 320, low: 180 })[intensity]
+  buttonFeedbackAnimations.get(target)?.cancel()
+  const animation = target.animate(frames, { duration, easing: 'cubic-bezier(.16,1,.3,1)' })
+  buttonFeedbackAnimations.set(target, animation)
+  animation.finished.catch(() => {}).finally(() => {
+    if (buttonFeedbackAnimations.get(target) === animation) buttonFeedbackAnimations.delete(target)
+  })
+}
+
+function handlePhoneClick(event: MouseEvent) {
+  animateButtonFeedback(event)
+  animateSettingsChoice(event)
+}
+
 function animateSettingsChoice(event: MouseEvent) {
   const target = (event.target as HTMLElement | null)?.closest?.('button') as HTMLButtonElement | null
   if (!target || target.disabled) return
@@ -1009,7 +1049,7 @@ function animateSettingsChoice(event: MouseEvent) {
 }
 
 function showSettingsAutoSaved(message = '更改已写入当前设备') {
-  pushNotice(settingsNotices, { title: '设置已自动保存', message, tone: 'success' }, 2300)
+  pushNotice(settingsNotices, { title: '设置已自动保存', message, tone: 'success' }, NOTICE_DURATION)
 }
 
 function handleSettingsAutoInput(event: Event) {
@@ -1038,7 +1078,7 @@ function selectLibraryMediaType(type: string) {
     return
   }
   libraryMediaType.value = type
-  const closeDelay = ({ high: 540, medium: 480, low: 150 })[motionIntensity.value]
+  const closeDelay = ({ high: 300, medium: 220, low: 110 })[motionIntensity.value]
   window.setTimeout(() => {
     libraryMediaMenuOpen.value = false
   }, closeDelay)
@@ -1059,39 +1099,66 @@ async function testTmdbConnection() {
     if (apiUrl.protocol !== 'https:' || imageUrl.protocol !== 'https:') {
       throw new Error('API 与图片地址都必须使用 HTTPS（默认端口就是 443）')
     }
-    if (apiUrl.hostname !== 'api.themoviedb.org' || imageUrl.hostname !== 'image.tmdb.org') throw new Error('当前仅支持 TMDB 官方直连地址')
   } catch (error) {
     tmdbTestState.value = 'error'
     tmdbTestMessage.value = error instanceof Error ? error.message : '服务地址格式不正确。'
     return
   }
   tmdbTestState.value = 'testing'
-  tmdbTestMessage.value = '正在直连 TMDB 官方服务…'
+  tmdbTestMessage.value = tmdbNetworkMode.value === 'hosts' ? '正在通过 CheckTMDB hosts 连接…' : '正在连接自定义 TMDB 服务…'
   try {
     const request = tmdbRequest(`${base}/configuration`)
     const response = await executeTmdbRequest(request)
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    if (!response.ok) {
+      tmdbTestState.value = 'error'
+      if (response.status === 401) {
+        tmdbTestMessage.value = '已连接到 TMDB，但 API 密钥无效（HTTP 401）。请重新粘贴 v3 API Key 或 v4 Read Access Token；可直接粘贴带 Bearer 前缀的 Token。'
+        return
+      }
+      if (response.status === 403) {
+        tmdbTestMessage.value = '已连接到 TMDB，但当前密钥没有访问权限（HTTP 403）。请检查密钥状态与账户权限。'
+        return
+      }
+      throw new Error(`HTTP ${response.status}`)
+    }
     tmdbTestState.value = 'success'
-    tmdbTestMessage.value = 'TMDB 官方直连成功。'
+    tmdbTestMessage.value = tmdbNetworkMode.value === 'hosts' ? 'CheckTMDB hosts 连接成功。' : '自定义 TMDB 服务连接成功。'
   } catch (error) {
     tmdbTestState.value = 'error'
-    const hint = '中国大陆网络通常无法直接访问，请先开启手机或电脑的系统代理后重试。'
+    const hint = tmdbNetworkMode.value === 'hosts'
+      ? '请确认已将 CheckTMDB 最新 hosts 写入系统或路由器，然后重试。'
+      : '请检查自定义 API、图片地址和 HTTPS 证书。'
     const reason = error instanceof Error ? error.message : String(error)
     tmdbTestMessage.value = `连接失败（${reason}）。${hint}`
   }
 }
 
 function refreshTmdbEndpoints() {
-  tmdbApiBase.value = 'https://api.themoviedb.org/3'
-  tmdbImageBase.value = 'https://image.tmdb.org/t/p'
+  if (tmdbNetworkMode.value === 'hosts') {
+    tmdbApiBase.value = 'https://api.themoviedb.org/3'
+    tmdbImageBase.value = 'https://image.tmdb.org/t/p'
+  } else {
+    tmdbApiBase.value = localStorage.getItem('movie-tmdb-custom-api-base') || ''
+    tmdbImageBase.value = localStorage.getItem('movie-tmdb-custom-image-base') || ''
+  }
   tmdbTestState.value = 'idle'
   tmdbTestMessage.value = ''
   tmdbEndpointRefreshState.value = 'refreshed'
   window.setTimeout(() => { tmdbEndpointRefreshState.value = 'idle' }, 1400)
 }
 
+function switchTmdbNetworkMode(mode: TmdbNetworkMode) {
+  if (tmdbNetworkMode.value === mode) return
+  if (tmdbNetworkMode.value === 'custom') {
+    localStorage.setItem('movie-tmdb-custom-api-base', tmdbApiBase.value.trim())
+    localStorage.setItem('movie-tmdb-custom-image-base', tmdbImageBase.value.trim())
+  }
+  tmdbNetworkMode.value = mode
+  refreshTmdbEndpoints()
+}
+
 function tmdbRequest(url, params = {}) {
-  const credential = tmdbToken.value.trim()
+  const credential = tmdbToken.value.trim().replace(/^Bearer\s+/i, '').replace(/^['"]|['"]$/g, '').trim()
   const search = new URLSearchParams(params)
   const headers: Record<string, string> = { accept: 'application/json' }
   if (credential.startsWith('eyJ')) headers.Authorization = `Bearer ${credential}`
@@ -1160,6 +1227,7 @@ function handleAvatarUpload(event) {
       canvas.getContext('2d').drawImage(image, offsetX, offsetY, side, side, 0, 0, size, size)
       avatarUrl.value = canvas.toDataURL('image/jpeg', .86)
       avatarUploadMessage.value = `${file.name} · 已保存到当前浏览器`
+      showSettingsAutoSaved('本地头像已自动保存')
     }
     if (typeof reader.result === 'string') image.src = reader.result
   }
@@ -1179,15 +1247,7 @@ function confirmProfileColor() {
   if (activeProfileColor.value === 'background') profileBackgroundColor.value = pendingProfileColor.value
   if (activeProfileColor.value === 'ring') avatarRingColor.value = pendingProfileColor.value
   activeProfileColor.value = null
-  profileSaveState.value = 'dirty'
-}
-
-function saveProfileSettings() {
-  localStorage.setItem('movie-username', username.value || '用户')
-  localStorage.setItem('movie-avatar-url', avatarUrl.value.trim())
-  localStorage.setItem('movie-profile-background', profileBackgroundColor.value)
-  localStorage.setItem('movie-avatar-ring', avatarRingColor.value)
-  profileSaveState.value = 'saved'
+  showSettingsAutoSaved('个人资料颜色已自动保存')
 }
 
 function showHome() {
@@ -1214,7 +1274,7 @@ function dismissLibraryPopovers(event) {
 function libraryPosterStyle(movie) {
   const path = movie.backdropUrl || movie.posterUrl || movie.backdrop_path || movie.poster_path
   if (path) {
-    const src = path.startsWith('http') ? path : `https://image.tmdb.org/t/p/w500${path}`
+    const src = path.startsWith('http') ? path : `${tmdbImageBase.value.trim().replace(/\/$/, '')}/w500${path}`
     return { backgroundImage: `url(${src})` }
   }
   return movie.poster === 'demon' ? { backgroundImage: `url(${cinematicAnimeCollage})` } : undefined
@@ -1229,10 +1289,10 @@ function markLibraryWatched(movie) {
   if (armedWatched.value !== movie.id) {
     armedWatched.value = movie.id
     window.clearTimeout(watchConfirmTimer)
-    pushNotice(libraryNotices, { title: '再点一次确认', message: `将《${movie.title}》设为已观看`, tone: 'warning' }, 2400)
+    pushNotice(libraryNotices, { title: '再点一次确认', message: `将《${movie.title}》设为已观看`, tone: 'warning' }, NOTICE_DURATION)
     watchConfirmTimer = window.setTimeout(() => {
       armedWatched.value = null
-    }, 2400)
+    }, NOTICE_DURATION)
     return
   }
   armedWatched.value = null
@@ -1252,7 +1312,7 @@ function toggleLibraryWatchStatus(movie) {
     title: movie.watched ? '已设为已观看' : '已设为未观看',
     message: `《${movie.title}》的观看状态已更新`,
     tone: 'success',
-  }, 2400)
+  }, NOTICE_DURATION)
 }
 
 function toggleLibraryMovie(id) {
@@ -1575,7 +1635,7 @@ function resetTmdbSearch() {
 }
 
 function showRecordNotice(title, message, type = 'success') {
-  pushNotice(recordNotices, { title, message, type }, 3200)
+  pushNotice(recordNotices, { title, message, type }, RECORD_NOTICE_DURATION)
 }
 
 function viewTmdbResult(result) {
@@ -1823,15 +1883,15 @@ function navigateDetail(direction) {
       @pointermove.capture="edgeBackPointerMove"
       @pointerup.capture="edgeBackPointerUp"
       @pointercancel.capture="cancelEdgeBackGesture"
-      @click.capture="animateSettingsChoice"
+      @click.capture="handlePhoneClick"
     >
       <div class="ambient-orb ambient-orb--one" aria-hidden="true"></div>
       <div class="ambient-orb ambient-orb--two" aria-hidden="true"></div>
 
-      <NoticeStack v-if="addOpen && (currentPage === 'home' || currentPage === 'library')" :notices="recordNotices" placement="record" :motion="motionIntensity" :duration="3200" closable @dismiss="dismissNotice(recordNotices, $event)" />
-      <NoticeStack v-else-if="currentPage === 'home'" :notices="homeNotices" placement="home" :motion="motionIntensity" :duration="2400" @dismiss="dismissNotice(homeNotices, $event)" />
-      <NoticeStack v-else-if="currentPage === 'library'" :notices="libraryNotices" placement="library" :motion="motionIntensity" :duration="2400" @dismiss="dismissNotice(libraryNotices, $event)" />
-      <NoticeStack v-else-if="currentPage === 'settings'" :notices="settingsNotices" placement="settings" :motion="motionIntensity" :duration="2300" @dismiss="dismissNotice(settingsNotices, $event)" />
+      <NoticeStack v-if="addOpen && (currentPage === 'home' || currentPage === 'library')" :notices="recordNotices" placement="record" :motion="motionIntensity" :duration="RECORD_NOTICE_DURATION" closable @dismiss="dismissNotice(recordNotices, $event)" />
+      <NoticeStack v-else-if="currentPage === 'home'" :notices="homeNotices" placement="home" :motion="motionIntensity" :duration="NOTICE_DURATION" @dismiss="dismissNotice(homeNotices, $event)" />
+      <NoticeStack v-else-if="currentPage === 'library'" :notices="libraryNotices" placement="library" :motion="motionIntensity" :duration="NOTICE_DURATION" @dismiss="dismissNotice(libraryNotices, $event)" />
+      <NoticeStack v-else-if="currentPage === 'settings'" :notices="settingsNotices" placement="settings" :motion="motionIntensity" :duration="NOTICE_DURATION" @dismiss="dismissNotice(settingsNotices, $event)" />
 
       <Transition :name="surfaceTransitionName" :duration="surfaceTransitionDuration">
         <section v-if="surfacePage === 'home'" key="home" class="surface-view home-surface">
@@ -1890,8 +1950,8 @@ function navigateDetail(direction) {
           </div>
 
           <Transition :name="homeSwapTransition" mode="out-in" class="surface-piece" style="--piece-order: 2">
-            <MovieCarousel v-if="viewMode === 'cards'" :key="`cards-${activeWatchStat}-${statPeriod}-${selectedYear}`" :movies="displayedMovies" :database-empty="movieRecordsReady && !movieRecords.length" :active="currentPage === 'home'" :motion-intensity="motionIntensity" @mark-watched="markWatched" @open-detail="openDetail" />
-            <MovieList v-else :key="`list-${activeWatchStat}-${statPeriod}-${selectedYear}`" :movies="displayedMovies" :database-empty="movieRecordsReady && !movieRecords.length" @open-detail="openHomeListDetail" @watch-warning="showHomeWatchNotice" @mark-watched="markWatched" />
+            <MovieCarousel v-if="viewMode === 'cards'" :key="`cards-${activeWatchStat}-${statPeriod}-${selectedYear}`" :movies="displayedMovies" :database-empty="movieRecordsReady && !movieRecords.length" :active="currentPage === 'home'" :motion-intensity="motionIntensity" :image-base="tmdbImageBase" @mark-watched="markWatched" @open-detail="openDetail" />
+            <MovieList v-else :key="`list-${activeWatchStat}-${statPeriod}-${selectedYear}`" :movies="displayedMovies" :database-empty="movieRecordsReady && !movieRecords.length" :image-base="tmdbImageBase" @open-detail="openHomeListDetail" @watch-warning="showHomeWatchNotice" @mark-watched="markWatched" />
           </Transition>
         </section>
         </section>
@@ -2102,7 +2162,7 @@ function navigateDetail(direction) {
 
       <div v-if="posterFlight" class="poster-flight" :class="`poster-flight--${posterFlight.movie.poster}`" :style="{ '--flight-left': `${posterFlight.left}px`, '--flight-top': `${posterFlight.top}px`, '--flight-width': `${posterFlight.width}px`, '--flight-height': `${posterFlight.height}px`, ...libraryPosterStyle(posterFlight.movie) }" aria-hidden="true"></div>
 
-      <MovieDetail ref="movieDetail" v-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" :entry-mode="detailEntry" :motion-intensity="motionIntensity" :layout-order="detailLayout.map((item) => item.id)" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" @update-record="updateMovieRecord" @request-person="requestPersonDetails" />
+      <MovieDetail ref="movieDetail" v-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" :entry-mode="detailEntry" :motion-intensity="motionIntensity" :image-base="tmdbImageBase" :layout-order="detailLayout.map((item) => item.id)" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" @update-record="updateMovieRecord" @request-person="requestPersonDetails" />
 
       <Transition name="settings-shell">
         <section v-if="currentPage === 'settings'" class="personal-settings" @input.capture="handleSettingsAutoInput">
@@ -2162,15 +2222,15 @@ function navigateDetail(direction) {
                     <footer><button type="button" @click="activeProfileColor = null">取消</button><button type="button" @click="confirmProfileColor"><Check :size="14" />确认颜色</button></footer>
                   </section>
                 </Transition>
-                <div class="settings-group settings-piece" style="--settings-order: 2"><label for="username">名称</label><input id="username" v-model.trim="username" maxlength="10" placeholder="输入你的名字" /><small>首页将显示“{{ username || '用户' }}的观影记录”。</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 2"><label for="username">名称</label><input id="username" v-model.trim="username" data-auto-save maxlength="10" placeholder="输入你的名字" /><small>首页将显示“{{ username || '用户' }}的观影记录”，更改会自动保存。</small></div>
                 <div class="settings-group settings-piece" style="--settings-order: 3"><label>本地头像</label><label class="avatar-upload"><i><Upload :size="18" /></i><span><strong>选择本地图片</strong><em>支持 JPG、PNG，自动居中裁剪</em></span><b>浏览</b><input type="file" accept="image/*" aria-label="选择本地头像图片" @change="handleAvatarUpload" /></label><small class="avatar-upload-status">{{ avatarUploadMessage || '图片会压缩为 256 × 256，并只保存在当前浏览器。' }}</small></div>
-                <div class="settings-group settings-piece" style="--settings-order: 4"><label for="avatar-url">或使用图片地址</label><input id="avatar-url" v-model.trim="avatarUrlInput" inputmode="url" :placeholder="avatarUrl.startsWith('data:') ? '正在使用本地头像，输入网址可替换' : 'https://example.com/avatar.jpg'" /><small>{{ avatarUrl.startsWith('data:') ? '当前使用本地头像，图片数据已隐藏。' : '留空时显示名称首字。' }}</small></div>
-                <button class="profile-save-button settings-piece" :class="{ saved: profileSaveState === 'saved' }" style="--settings-order: 5" @click="saveProfileSettings"><Check :size="18" /><span><strong>{{ profileSaveState === 'saved' ? '个人信息已保存' : '保存个人信息' }}</strong><small>{{ profileSaveState === 'saved' ? '颜色、头像与名称已同步' : '保存颜色、头像和名称设置' }}</small></span></button>
+                <div class="settings-group settings-piece" style="--settings-order: 4"><label for="avatar-url">或使用图片地址</label><input id="avatar-url" v-model.trim="avatarUrlInput" data-auto-save inputmode="url" :placeholder="avatarUrl.startsWith('data:') ? '正在使用本地头像，输入网址可替换' : 'https://example.com/avatar.jpg'" /><small>{{ avatarUrl.startsWith('data:') ? '当前使用本地头像，图片数据已隐藏。' : '留空时显示名称首字，更改会自动保存。' }}</small></div>
               </template>
 
               <template v-else-if="settingsSection === 'home'">
                 <div class="settings-group settings-piece" style="--settings-order: 1"><label>默认统计单位</label><div class="period-options" role="group" aria-label="时间单位"><button v-for="option in [{ value: 'year', label: '年' }, { value: 'month', label: '月' }, { value: 'day', label: '日' }]" :key="option.value" :class="{ selected: statPeriod === option.value }" @click="statPeriod = option.value">{{ option.label }}</button></div></div>
                 <div class="settings-group settings-piece" style="--settings-order: 2"><label>首页最多展示</label><div class="home-limit-control" :class="{ editing: homeCustomLimitOpen }"><div class="period-options home-limit-options" role="group" aria-label="首页电影展示数量"><button v-for="limit in [5, 10]" :key="limit" :class="{ selected: homeDisplayLimit === limit && !homeCustomLimitOpen }" @click="homeDisplayLimit = limit; homeCustomLimitOpen = false">{{ limit }} 部</button><button v-if="!homeCustomLimitOpen" :class="{ selected: ![5, 10].includes(homeDisplayLimit) }" @click="openHomeCustomLimit">自定义</button></div><Transition name="home-custom-limit"><div v-if="homeCustomLimitOpen" class="home-custom-limit-editor"><label><input v-model="homeCustomLimitInput" type="number" inputmode="numeric" min="1" max="99" aria-label="自定义首页展示数量" /><span>部</span></label><div><button type="button" @click="cancelHomeCustomLimit">取消</button><button type="button" @click="saveHomeCustomLimit"><Check :size="13" />保存</button></div></div></Transition></div><small>卡片和列表共同使用这个展示数量；默认 10 部，也可快速选择 5 部。</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 3"><label>默认首页视图</label><div class="period-options home-view-options" role="group" aria-label="默认首页视图"><button :class="{ selected: viewMode === 'cards' }" @click="viewMode = 'cards'"><img :src="pixelCards" alt="" />卡片</button><button :class="{ selected: viewMode === 'list' }" @click="viewMode = 'list'"><img :src="pixelRows" alt="" />列表</button></div><small>选择后立即应用，下次打开 App 也会保持。</small></div>
               </template>
 
               <template v-else-if="settingsSection === 'library'">
@@ -2213,7 +2273,7 @@ function navigateDetail(direction) {
                       <span><strong>低</strong><small>极轻位移与快速淡入</small></span>
                     </button>
                   </div>
-                  <p>App 默认使用中强度以保证衔接顺滑；设置会立即应用并保存在当前设备。</p>
+                  <p>App 默认使用高强度；设置会立即应用并保存在当前设备。</p>
                 </section>
 
                 <section class="startup-animation-settings settings-piece" style="--settings-order: 2">
@@ -2242,16 +2302,20 @@ function navigateDetail(direction) {
               </template>
 
               <template v-else>
-                <div class="network-options network-options--official settings-piece" style="--settings-order: 1" role="status"><button class="selected"><strong>TMDB 官方直连</strong><span>中国大陆使用时请先开启代理</span></button></div>
-                <button class="tmdb-refresh-endpoints settings-piece" :class="{ refreshed: tmdbEndpointRefreshState === 'refreshed' }" style="--settings-order: 2" @click="refreshTmdbEndpoints"><RefreshCw :size="16" /><span><strong>{{ tmdbEndpointRefreshState === 'refreshed' ? '官方地址已恢复' : '恢复官方地址' }}</strong><small>恢复 TMDB 官方 API 与图片地址</small></span></button>
+                <div class="network-options settings-piece" style="--settings-order: 1" role="group" aria-label="TMDB 网络方式">
+                  <button :class="{ selected: tmdbNetworkMode === 'hosts' }" @click="switchTmdbNetworkMode('hosts')"><strong>CheckTMDB hosts</strong><span>国内推荐</span></button>
+                  <button :class="{ selected: tmdbNetworkMode === 'custom' }" @click="switchTmdbNetworkMode('custom')"><strong>自定义地址</strong><span>反代或镜像</span></button>
+                </div>
+                <button class="tmdb-refresh-endpoints settings-piece" :class="{ refreshed: tmdbEndpointRefreshState === 'refreshed' }" style="--settings-order: 2" @click="refreshTmdbEndpoints"><RefreshCw :size="16" /><span><strong>{{ tmdbEndpointRefreshState === 'refreshed' ? '当前地址已刷新' : '刷新当前地址' }}</strong><small>{{ tmdbNetworkMode === 'hosts' ? '重新载入 CheckTMDB hosts 对应的 TMDB 域名' : '重新载入已保存的自定义地址' }}</small></span></button>
                 <div class="tmdb-notice settings-piece" style="--settings-order: 3">
                   <Database :size="20" />
-                  <div><strong>直接访问 TMDB 官方域名</strong><p>中国大陆网络通常不能直接连接 TMDB；搜索或加载图片前，请先在手机或电脑上开启系统代理。</p></div>
+                  <div><strong>{{ tmdbNetworkMode === 'hosts' ? '使用 CheckTMDB 整理的 hosts' : '使用你信任的服务地址' }}</strong><p>{{ tmdbNetworkMode === 'hosts' ? 'hosts 会把 TMDB 域名指向可用 IP，应用不再强制官方 DNS。请将下方最新映射写入系统或路由器。' : '支持 HTTPS 反代或镜像，API 与图片地址会分别保存。' }}</p></div>
                 </div>
-                <div class="tmdb-native-warning settings-piece" style="--settings-order: 3"><strong>本应用不内置代理</strong><span>请先在手机或电脑系统中开启可访问 TMDB 的代理，再返回这里测试连接；无需填写 VPS 或反代地址。</span></div>
+                <div class="tmdb-native-warning settings-piece" style="--settings-order: 3"><strong>{{ tmdbNetworkMode === 'hosts' ? '需在系统或路由器生效' : '自定义地址必须使用 HTTPS' }}</strong><span>{{ tmdbNetworkMode === 'hosts' ? 'Android App 无法自动修改系统 hosts；更新后重启 App 再测试。' : '可填写你之前使用的反代或镜像地址，无需额外写 443 端口。' }}</span></div>
                 <div class="settings-group settings-piece" style="--settings-order: 3"><label for="tmdb-token">API 密钥</label><input id="tmdb-token" v-model.trim="tmdbToken" data-auto-save type="password" autocomplete="off" placeholder="输入 TMDB v3 API 密钥" /><small>支持 v3 API 密钥；旧的 Read Access Token 也会自动识别。密钥只保存在当前浏览器。</small></div>
-                <div class="settings-group settings-piece" style="--settings-order: 4"><label for="tmdb-api">API 地址</label><input id="tmdb-api" v-model.trim="tmdbApiBase" inputmode="url" readonly /><small>TMDB 官方：https://api.themoviedb.org/3</small></div>
-                <div class="settings-group settings-piece" style="--settings-order: 5"><label for="tmdb-image">图片地址</label><input id="tmdb-image" v-model.trim="tmdbImageBase" inputmode="url" readonly /><small>TMDB 官方：https://image.tmdb.org/t/p</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 4"><label for="tmdb-api">API 地址</label><input id="tmdb-api" v-model.trim="tmdbApiBase" data-auto-save inputmode="url" :readonly="tmdbNetworkMode === 'hosts'" :placeholder="tmdbNetworkMode === 'custom' ? 'https://tmdb.example.com/tmdb-api' : 'https://api.themoviedb.org/3'" /><small>{{ tmdbNetworkMode === 'hosts' ? '域名保持不变，实际 IP 由 CheckTMDB hosts 接管。' : '填写你的 HTTPS API 反代或镜像地址。' }}</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 5"><label for="tmdb-image">图片地址</label><input id="tmdb-image" v-model.trim="tmdbImageBase" data-auto-save inputmode="url" :readonly="tmdbNetworkMode === 'hosts'" :placeholder="tmdbNetworkMode === 'custom' ? 'https://tmdb.example.com/tmdb-image' : 'https://image.tmdb.org/t/p'" /><small>{{ tmdbNetworkMode === 'hosts' ? '海报与剧照同样跟随 CheckTMDB hosts 映射。' : '填写镜像对应的图片根地址。' }}</small></div>
+                <div v-if="tmdbNetworkMode === 'hosts'" class="hosts-links settings-piece" style="--settings-order: 6"><a href="https://raw.githubusercontent.com/cnwikee/CheckTMDB/refs/heads/main/Tmdb_host_ipv4" target="_blank" rel="noreferrer">IPv4 hosts <ArrowUpRight :size="13" /></a><a href="https://raw.githubusercontent.com/cnwikee/CheckTMDB/refs/heads/main/Tmdb_host_ipv6" target="_blank" rel="noreferrer">IPv6 hosts <ArrowUpRight :size="13" /></a></div>
                 <button class="tmdb-test settings-piece" style="--settings-order: 7" :disabled="tmdbTestState === 'testing'" @click="testTmdbConnection">{{ tmdbTestState === 'testing' ? '正在测试…' : '测试连接' }}</button>
                 <p v-if="tmdbTestMessage" class="tmdb-result" :class="`is-${tmdbTestState}`">{{ tmdbTestMessage }}</p>
               </template>

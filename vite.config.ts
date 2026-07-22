@@ -5,4 +5,9 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   base: './',
   plugins: [vue()],
+  server: {
+    watch: {
+      ignored: ['**/*.apk', '**/android/build/**', '**/android/app/build/**', '**/dist/**'],
+    },
+  },
 })

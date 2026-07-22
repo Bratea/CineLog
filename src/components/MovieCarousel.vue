@@ -11,7 +11,8 @@ const props = withDefaults(defineProps<{
   active?: boolean
   motionIntensity?: 'low' | 'medium' | 'high'
   databaseEmpty?: boolean
-}>(), { active: true, motionIntensity: 'high', databaseEmpty: false })
+  imageBase?: string
+}>(), { active: true, motionIntensity: 'high', databaseEmpty: false, imageBase: 'https://image.tmdb.org/t/p' })
 const emit = defineEmits(['mark-watched', 'open-detail'])
 
 const activeIndex = ref(0)
@@ -190,7 +191,7 @@ function posterStyle(movie) {
   // 首页卡片使用竖版海报作为主体；横版背景只在没有海报时兜底。
   const path = movie.posterUrl || movie.poster_path || movie.backdropUrl || movie.backdrop_path
   if (path) {
-    const src = path.startsWith('http') ? path : `https://image.tmdb.org/t/p/w500${path}`
+    const src = path.startsWith('http') ? path : `${props.imageBase.replace(/\/$/, '')}/w500${path}`
     return { backgroundImage: `url(${src})` }
   }
   return movie.poster === 'demon' ? { backgroundImage: `url(${cinematicAnimeCollage})` } : {}

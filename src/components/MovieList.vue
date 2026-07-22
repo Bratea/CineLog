@@ -4,7 +4,7 @@ import { ChevronRight, Star } from 'lucide-vue-next'
 import cinematicAnimeCollage from '../assets/cinematic-anime-collage.png'
 import type { Movie } from '../types'
 
-withDefaults(defineProps<{ movies: Movie[]; databaseEmpty?: boolean }>(), { databaseEmpty: false })
+const props = withDefaults(defineProps<{ movies: Movie[]; databaseEmpty?: boolean; imageBase?: string }>(), { databaseEmpty: false, imageBase: 'https://image.tmdb.org/t/p' })
 const emit = defineEmits(['open-detail', 'mark-watched', 'watch-warning'])
 const armedId = ref(null)
 const completingId = ref(null)
@@ -17,7 +17,7 @@ function openRow(movie, event) {
 function posterStyle(movie) {
   const path = movie.backdropUrl || movie.posterUrl || movie.backdrop_path || movie.poster_path
   if (path) {
-    const src = path.startsWith('http') ? path : `https://image.tmdb.org/t/p/w342${path}`
+    const src = path.startsWith('http') ? path : `${props.imageBase.replace(/\/$/, '')}/w342${path}`
     return { backgroundImage: `url(${src})` }
   }
   return movie.poster === 'demon' ? { backgroundImage: `url(${cinematicAnimeCollage})` } : {}

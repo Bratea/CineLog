@@ -28,6 +28,7 @@ const props = defineProps({
   movie: { type: Object, required: true },
   entryMode: { type: String, default: 'home' },
   motionIntensity: { type: String, default: 'high' },
+  imageBase: { type: String, default: 'https://image.tmdb.org/t/p' },
   layoutOrder: { type: Array, default: () => ['tagline', 'score', 'trailer', 'facts', 'synopsis', 'people', 'record', 'info', 'production', 'releases', 'videos', 'posters', 'collection', 'stills'] },
 })
 const emit = defineEmits(['back', 'navigate', 'update-watched', 'update-record', 'request-person'])
@@ -75,7 +76,7 @@ let suppressClickUntil = 0
 
 const imageUrl = (path, size = 'original') => {
   if (!path) return ''
-  return path.startsWith('http') ? path : `https://image.tmdb.org/t/p/${size}${path}`
+  return path.startsWith('http') ? path : `${props.imageBase.replace(/\/$/, '')}/${size}${path}`
 }
 
 const posterStyle = computed(() => {
@@ -213,7 +214,7 @@ function clearDetailNotices() {
   detailNotices.value = []
 }
 
-function pushDetailNotice(notice: Omit<DetailNotice, 'id'>, duration = 2400) {
+function pushDetailNotice(notice: Omit<DetailNotice, 'id'>, duration = 1800) {
   const item = { ...notice, id: ++detailNoticeSequence }
   const limit = props.motionIntensity === 'high' ? 5 : 3
   detailNotices.value = [item, ...detailNotices.value].slice(0, limit)
@@ -228,13 +229,13 @@ function toggleWatched() {
     title: watched ? '已设为已观看' : '已设为未观看',
     message: `《${props.movie.title}》的观看状态已更新`,
     tone: 'success',
-  }, 2600)
+  }, 1800)
 }
 
 function toggleLiked() {
   liked.value = !liked.value
   props.movie.favourite = liked.value
-  pushDetailNotice({ title: liked.value ? '已加入我的喜欢' : '已取消喜欢', message: `《${props.movie.title}》已更新`, tone: 'success' }, 2200)
+  pushDetailNotice({ title: liked.value ? '已加入我的喜欢' : '已取消喜欢', message: `《${props.movie.title}》已更新`, tone: 'success' }, 1700)
 }
 
 function openImage(src, title, fit = 'contain', images = [], initialIndex = 0) {
@@ -448,7 +449,7 @@ onBeforeUnmount(() => {
       <div class="detail-fixed-title"><strong>{{ movie.title }}</strong><small v-if="allowPageSwipe">网页端可左右滑动切换</small></div>
       <button :class="{ active: liked }" aria-label="收藏" @click="toggleLiked"><Heart :size="20" :fill="liked ? 'currentColor' : 'none'" /></button>
     </header>
-    <NoticeStack :notices="detailNotices" placement="detail" :motion="motionIntensity" :duration="2600" closable @dismiss="dismissDetailNotice" />
+    <NoticeStack :notices="detailNotices" placement="detail" :motion="motionIntensity" :duration="1800" closable @dismiss="dismissDetailNotice" />
 
     <div ref="detailScroll" class="detail-scroll" @scroll.passive="handleScroll">
       <section :key="`hero-${movie.id}`" class="detail-hero-copy">
