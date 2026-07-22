@@ -661,7 +661,7 @@ onBeforeUnmount(() => {
 .movie-detail { --accent:#f2b85b; --screen:#07100f; --scroll:0; --backdrop-clip:46%; --swipe-x:0px; position:absolute; z-index:12; inset:0; overflow:hidden; color:#f7f1e8; background:var(--screen); touch-action:pan-y; translate:var(--swipe-x) 0; transform-origin:50% 72%; will-change:translate,transform; }
 .movie-detail.has-swipe-transition { transition:translate .36s cubic-bezier(.18,.86,.2,1),opacity .24s ease; }
 .movie-detail.motion-high { animation:detail-gravity-home .58s cubic-bezier(.16,1,.3,1) both; }
-.movie-detail.motion-high.entry-list { transform-origin:14% 72%; animation-name:detail-gravity-list; }
+.movie-detail.motion-high.entry-list { transform-origin:14% 72%; animation-name:detail-gravity-list; animation-duration:.46s; }
 .movie-detail.motion-high.entry-library { transform-origin:100% 50%; animation:detail-library-cover-high .58s cubic-bezier(.16,1,.3,1) both; }
 .movie-detail.motion-high.entry-preview { animation:detail-side-in .34s cubic-bezier(.16,1,.3,1) both; }
 .movie-detail.motion-medium { animation:detail-side-in .46s cubic-bezier(.16,1,.3,1) both; }

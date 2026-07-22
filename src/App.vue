@@ -15,7 +15,7 @@ import DatabaseSettings from './components/DatabaseSettings.vue'
 import RotatingText from './components/RotatingText.vue'
 import { getLocalValue, setLocalValue } from './services/localDatabase'
 import cinematicAnimeCollage from './assets/cinematic-anime-collage.png'
-import cinelogMark from './assets/branding/cinelog-mark.png'
+import cinelogAppIcon from './assets/branding/cinelog-app-icon.png'
 import pixelPlus from './assets/pixel-plus.webp'
 import pixelHome from './assets/pixel-home.webp'
 import pixelMovieList from './assets/pixel-movie-list.webp'
@@ -66,7 +66,7 @@ function completeStartupAnimation() {
 function scheduleStartupAnimation() {
   window.clearTimeout(startupAnimationTimer)
   if (!showStartupAnimation.value) return
-  const introDuration = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 700 : 3600
+  const introDuration = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 500 : 3900
   startupAnimationTimer = window.setTimeout(completeStartupAnimation, introDuration)
 }
 
@@ -845,11 +845,9 @@ function openDetailFromPoster(movie: Movie, source: Element | null) {
     width: posterRect.width,
     height: posterRect.height,
   }
-  window.setTimeout(() => {
-    selectedMovie.value = movie
-    currentPage.value = 'detail'
-    ensureTmdbDetails(movie)
-  }, 90)
+  selectedMovie.value = movie
+  currentPage.value = 'detail'
+  ensureTmdbDetails(movie)
   window.setTimeout(() => { posterFlight.value = null }, 460)
 }
 
@@ -1292,6 +1290,16 @@ function libraryPosterStyle(movie) {
   if (path) {
     const src = path.startsWith('http') ? path : `${tmdbImageBase.value.trim().replace(/\/$/, '')}/w500${path}`
     return { backgroundImage: `url(${src})` }
+  }
+  return movie.poster === 'demon' ? { backgroundImage: `url(${cinematicAnimeCollage})` } : undefined
+}
+
+function posterFlightStyle(movie) {
+  const path = movie.backdropUrl || movie.posterUrl || movie.backdrop_path || movie.poster_path
+  if (path) {
+    if (path.startsWith('http')) return { backgroundImage: `url(${path})` }
+    const base = tmdbImageBase.value.trim().replace(/\/$/, '')
+    return { backgroundImage: `url(${base}/original${path}), url(${base}/w500${path})` }
   }
   return movie.poster === 'demon' ? { backgroundImage: `url(${cinematicAnimeCollage})` } : undefined
 }
@@ -1950,12 +1958,21 @@ function navigateDetail(direction) {
         aria-modal="true"
         aria-label="CineLog 启动动画"
       >
-        <div class="first-launch-intro__grain" aria-hidden="true"></div>
-        <div class="first-launch-intro__beam" aria-hidden="true"></div>
+        <div class="first-launch-intro__pixel-grid" aria-hidden="true"></div>
+        <div class="first-launch-intro__pixel-cloud" aria-hidden="true">
+          <i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
         <div class="first-launch-intro__content">
           <div class="first-launch-intro__mark">
-            <span class="first-launch-intro__halo" aria-hidden="true"></span>
-            <img :src="cinelogMark" alt="" />
+            <span class="first-launch-intro__mark-shadow" aria-hidden="true"></span>
+            <span class="first-launch-intro__ticket" aria-hidden="true">
+              <span class="first-launch-intro__dots"><i></i><i></i><i></i></span>
+              <span class="first-launch-intro__play"></span>
+            </span>
+            <span class="first-launch-intro__check" aria-hidden="true"><i></i></span>
+            <span class="first-launch-intro__burst" aria-hidden="true">
+              <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+            </span>
           </div>
           <div class="first-launch-intro__copy">
             <h1>CineLog</h1>
@@ -2252,7 +2269,7 @@ function navigateDetail(direction) {
         </div>
       </div>
 
-      <div v-if="posterFlight" class="poster-flight" :class="`poster-flight--${posterFlight.movie.poster}`" :style="{ '--flight-left': `${posterFlight.left}px`, '--flight-top': `${posterFlight.top}px`, '--flight-width': `${posterFlight.width}px`, '--flight-height': `${posterFlight.height}px`, ...libraryPosterStyle(posterFlight.movie) }" aria-hidden="true"></div>
+      <div v-if="posterFlight" class="poster-flight" :class="`poster-flight--${posterFlight.movie.poster}`" :style="{ '--flight-left': `${posterFlight.left}px`, '--flight-top': `${posterFlight.top}px`, '--flight-width': `${posterFlight.width}px`, '--flight-height': `${posterFlight.height}px`, ...posterFlightStyle(posterFlight.movie) }" aria-hidden="true"></div>
 
       <MovieDetail ref="movieDetail" v-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" :entry-mode="detailEntry" :motion-intensity="motionIntensity" :image-base="tmdbImageBase" :layout-order="detailLayout.map((item) => item.id)" :preview-mode="isPreviewDetail" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" @update-record="updateMovieRecord" @request-person="requestPersonDetails" @preview-movie="openTmdbPreview" @request-save="openPreviewSaveDialog" />
 
@@ -2390,7 +2407,7 @@ function navigateDetail(direction) {
 
                 <section class="startup-animation-settings settings-piece" style="--settings-order: 2">
                   <div class="startup-animation-card">
-                    <div class="startup-animation-card__mark"><img :src="cinelogMark" alt="" /></div>
+                    <div class="startup-animation-card__mark"><img :src="cinelogAppIcon" alt="" /></div>
                     <div>
                       <strong>开机动画显示</strong>
                       <span>App 从后台进程被彻底关闭后，再次打开时播放 CineLog 启动动画。</span>

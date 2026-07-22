@@ -363,7 +363,7 @@ onBeforeUnmount(() => {
     <div
       ref="deck"
       class="deck"
-      :class="[`motion-${motionIntensity}`, { dragging: isDragging, returning: isReturning, 'opening-detail': isOpeningDetail }]"
+      :class="[`motion-${motionIntensity}`, { dragging: isDragging, returning: isReturning, 'pulling-detail': isDragging && dragAxis === 'vertical', 'opening-detail': isOpeningDetail }]"
       @pointerdown="pointerDown"
       @pointermove="pointerMove"
       @pointerup="pointerUp"
@@ -437,6 +437,8 @@ onBeforeUnmount(() => {
 <style lang="scss" scoped>
 .album { position: relative; top: 12px; margin: 0; }
 .deck { position: relative; height: 384px; margin: 0 15px; overflow: hidden; border-radius: 30px; background: transparent; touch-action: none; user-select: none; perspective: 1250px; }
+.deck.pulling-detail,
+.deck.opening-detail { overflow: visible; }
 .three-glow { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0; }
 .album-card { position: absolute; z-index: var(--z); bottom: 0; left: 50%; width: min(59vw, 258px); height: 378px; overflow: hidden; color: #fff; border: 1px solid rgba(255,255,255,.38); border-radius: calc(27px - var(--open-progress, 0) * 5px); box-shadow: 0 calc(19px + var(--open-progress, 0) * 12px) 30px rgba(9, 10, 14, calc(.19 + var(--open-progress, 0) * .13)); opacity: var(--opacity); transform-origin: center bottom; transform: translateX(calc(-50% + var(--x))) translateY(var(--lift)) rotateZ(var(--tilt)) rotateX(var(--open-tilt,0deg)) rotateY(calc(var(--rotate) * -.45)) scale(var(--scale)); filter: blur(var(--blur)); transition: transform 720ms cubic-bezier(.16, 1, .3, 1), opacity 520ms ease, filter 520ms ease, border-radius 420ms ease, box-shadow 420ms ease; will-change: transform; backface-visibility: hidden; animation: card-rise .62s cubic-bezier(.16, 1,.3, 1) both; }
 .album-card.active-card { cursor: ns-resize; }
