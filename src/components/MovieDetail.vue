@@ -28,10 +28,12 @@ const props = defineProps({
   movie: { type: Object, required: true },
   entryMode: { type: String, default: 'home' },
   motionIntensity: { type: String, default: 'high' },
+  imageBase: { type: String, default: 'https://image.tmdb.org/t/p' },
+  previewMode: { type: Boolean, default: false },
   layoutOrder: { type: Array, default: () => ['tagline', 'score', 'trailer', 'facts', 'synopsis', 'people', 'record', 'info', 'production', 'releases', 'videos', 'posters', 'collection', 'stills'] },
 })
-const emit = defineEmits(['back', 'navigate', 'update-watched', 'update-record', 'request-person'])
-const allowPageSwipe = !Capacitor.isNativePlatform()
+const emit = defineEmits(['back', 'navigate', 'update-watched', 'update-record', 'request-person', 'preview-movie', 'request-save'])
+const allowPageSwipe = computed(() => !props.previewMode && !Capacitor.isNativePlatform())
 
 const liked = ref(false)
 const overviewExpanded = ref(false)
@@ -75,7 +77,7 @@ let suppressClickUntil = 0
 
 const imageUrl = (path, size = 'original') => {
   if (!path) return ''
-  return path.startsWith('http') ? path : `https://image.tmdb.org/t/p/${size}${path}`
+  return path.startsWith('http') ? path : `${props.imageBase.replace(/\/$/, '')}/${size}${path}`
 }
 
 const posterStyle = computed(() => {
@@ -110,7 +112,7 @@ const voteLabel = computed(() => {
   if (count >= 1000) return `${(count / 1000).toFixed(1)}k 人评分`
   return `${count} 人评分`
 })
-const people = computed(() => [props.movie.director, ...(props.movie.cast || [])].filter(Boolean).slice(0, 8))
+const people = computed(() => [props.movie.director, ...(props.movie.cast || [])].filter(Boolean).slice(0, props.previewMode ? 4 : 8))
 const canExpandOverview = computed(() => String(props.movie.overview || '').length > 48)
 const trailerUrl = computed(() => {
   const directUrl = props.movie.trailerUrl || props.movie.videoUrl || props.movie.trailer?.url
@@ -143,6 +145,8 @@ const moduleOrder = (id) => {
   return index < 0 ? 50 : index + 1
 }
 const isModuleVisible = (id) => props.layoutOrder.includes(id)
+const compactPreviewModules = new Set(['score', 'facts', 'synopsis', 'people'])
+const isModuleShown = (id) => isModuleVisible(id) && (!props.previewMode || compactPreviewModules.has(id))
 
 function setScrollProgress(value, immediate = false) {
   pendingScrollProgress = value
@@ -213,7 +217,7 @@ function clearDetailNotices() {
   detailNotices.value = []
 }
 
-function pushDetailNotice(notice: Omit<DetailNotice, 'id'>, duration = 2400) {
+function pushDetailNotice(notice: Omit<DetailNotice, 'id'>, duration = 1800) {
   const item = { ...notice, id: ++detailNoticeSequence }
   const limit = props.motionIntensity === 'high' ? 5 : 3
   detailNotices.value = [item, ...detailNotices.value].slice(0, limit)
@@ -228,13 +232,13 @@ function toggleWatched() {
     title: watched ? '已设为已观看' : '已设为未观看',
     message: `《${props.movie.title}》的观看状态已更新`,
     tone: 'success',
-  }, 2600)
+  }, 1800)
 }
 
 function toggleLiked() {
   liked.value = !liked.value
   props.movie.favourite = liked.value
-  pushDetailNotice({ title: liked.value ? '已加入我的喜欢' : '已取消喜欢', message: `《${props.movie.title}》已更新`, tone: 'success' }, 2200)
+  pushDetailNotice({ title: liked.value ? '已加入我的喜欢' : '已取消喜欢', message: `《${props.movie.title}》已更新`, tone: 'success' }, 1700)
 }
 
 function openImage(src, title, fit = 'contain', images = [], initialIndex = 0) {
@@ -264,6 +268,11 @@ function openRecordEditor() {
 function openPerson(person) {
   selectedPerson.value = person
   emit('request-person', person)
+}
+
+function previewMovie(movie) {
+  selectedPerson.value = null
+  emit('preview-movie', movie)
 }
 
 function selectRating(score) {
@@ -296,7 +305,7 @@ function openExternal(url) {
 }
 
 function detailPointerDown(event) {
-  if (!allowPageSwipe) return
+  if (!allowPageSwipe.value) return
   if (isSwitching.value || isReturning.value || event.target.closest('input, textarea, select, .detail-topbar, .detail-dock, .people-rail, .stills-rail, .poster-rail, .company-rail, .collection-parts')) return
   swipeStart.value = { x: event.clientX, y: event.clientY }
   swipeAxis.value = null
@@ -305,7 +314,7 @@ function detailPointerDown(event) {
 }
 
 function detailPointerMove(event) {
-  if (!allowPageSwipe) return
+  if (!allowPageSwipe.value) return
   if (!swipeStart.value) return
   const deltaX = event.clientX - swipeStart.value.x
   const deltaY = event.clientY - swipeStart.value.y
@@ -320,7 +329,7 @@ function detailPointerMove(event) {
 }
 
 function detailPointerUp(event) {
-  if (!allowPageSwipe) return
+  if (!allowPageSwipe.value) return
   if (!swipeStart.value) return
   const deltaX = event.clientX - swipeStart.value.x
   if (swipeAxis.value === 'horizontal') suppressClickUntil = Date.now() + 420
@@ -343,7 +352,7 @@ function cancelDetailSwipe() {
 }
 
 function switchMovie(direction) {
-  if (isSwitching.value) return
+  if (props.previewMode || isSwitching.value) return
   switchDirection.value = direction
   isSwitching.value = true
   swipeTransition.value = true
@@ -401,6 +410,7 @@ watch(() => props.movie.id, async () => {
   recordDatePickerOpen.value = false
   clearDetailNotices()
   editOpen.value = false
+  isReturning.value = false
   liked.value = Boolean(props.movie.favourite)
   setScrollProgress(0, true)
   swipeTransition.value = false
@@ -435,7 +445,7 @@ onBeforeUnmount(() => {
   <article
     ref="detailRoot"
     class="movie-detail"
-    :class="[`movie-detail--${movie.poster}`, `entry-${entryMode}`, `motion-${motionIntensity}`, { 'is-swipe-dragging': isSwipeDragging, 'has-swipe-transition': swipeTransition, 'is-switching': isSwitching, 'is-returning': isReturning }]"
+    :class="[`movie-detail--${movie.poster}`, `entry-${entryMode}`, `motion-${motionIntensity}`, { 'is-preview': previewMode, 'is-swipe-dragging': isSwipeDragging, 'has-swipe-transition': swipeTransition, 'is-switching': isSwitching, 'is-returning': isReturning }]"
     @pointerdown.stop="detailPointerDown"
     @pointermove.stop="detailPointerMove"
     @pointerup.stop="detailPointerUp"
@@ -445,10 +455,10 @@ onBeforeUnmount(() => {
     <div class="detail-backdrop" :style="posterStyle"></div>
     <header class="detail-topbar">
       <button aria-label="返回" @click="requestBack"><ArrowLeft :size="21" /></button>
-      <div class="detail-fixed-title"><strong>{{ movie.title }}</strong><small v-if="allowPageSwipe">网页端可左右滑动切换</small></div>
-      <button :class="{ active: liked }" aria-label="收藏" @click="toggleLiked"><Heart :size="20" :fill="liked ? 'currentColor' : 'none'" /></button>
+      <div v-if="!previewMode" class="detail-fixed-title"><strong>{{ movie.title }}</strong><small v-if="allowPageSwipe">网页端可左右滑动切换</small></div>
+      <button v-if="!previewMode" :class="{ active: liked }" aria-label="收藏" @click="toggleLiked"><Heart :size="20" :fill="liked ? 'currentColor' : 'none'" /></button>
     </header>
-    <NoticeStack :notices="detailNotices" placement="detail" :motion="motionIntensity" :duration="2600" closable @dismiss="dismissDetailNotice" />
+    <NoticeStack :notices="detailNotices" placement="detail" :motion="motionIntensity" :duration="1800" closable @dismiss="dismissDetailNotice" />
 
     <div ref="detailScroll" class="detail-scroll" @scroll.passive="handleScroll">
       <section :key="`hero-${movie.id}`" class="detail-hero-copy">
@@ -463,38 +473,38 @@ onBeforeUnmount(() => {
         <div class="detail-meta">
           <span>{{ movie.year }}</span><i></i>
           <span>{{ genres.slice(0, 3).join('、') || '类型待补充' }}</span><i></i>
-          <span>{{ movie.watched ? '已观看' : '未观看' }}</span>
+          <span>{{ previewMode ? '未保存' : movie.watched ? '已观看' : '未观看' }}</span>
         </div>
       </section>
 
       <div :key="`content-${movie.id}`" class="detail-content">
-        <p v-if="movie.tagline && isModuleVisible('tagline')" class="detail-tagline detail-module" :style="{ order: moduleOrder('tagline') }">“{{ movie.tagline }}”</p>
+        <p v-if="!previewMode && movie.tagline && isModuleVisible('tagline')" class="detail-tagline detail-module" :style="{ order: moduleOrder('tagline') }">“{{ movie.tagline }}”</p>
 
         <div v-if="movie.detailState === 'loading'" class="detail-load-state">
-          <LoaderCircle :size="15" /><span>正在补全 TMDB 影片资料…</span>
+          <LoaderCircle :size="15" /><span>{{ previewMode ? '正在加载轻量预览…' : '正在补全 TMDB 影片资料…' }}</span>
         </div>
         <div v-else-if="movie.detailState === 'error'" class="detail-load-state is-error">
           <span>{{ movie.detailError }}</span>
         </div>
 
-        <section v-if="isModuleVisible('score') || isModuleVisible('trailer')" class="score-actions detail-module reveal-section" :class="{ 'is-single': !isModuleVisible('score') || !isModuleVisible('trailer') }" :style="{ order: Math.min(moduleOrder('score'), moduleOrder('trailer')) }" aria-label="评分与预告片">
-          <div v-if="isModuleVisible('score')" class="tmdb-score-card">
+        <section v-if="isModuleShown('score') || isModuleShown('trailer')" class="score-actions detail-module reveal-section" :class="{ 'is-single': !isModuleShown('score') || !isModuleShown('trailer') }" :style="{ order: Math.min(moduleOrder('score'), moduleOrder('trailer')) }" aria-label="评分与预告片">
+          <div v-if="isModuleShown('score')" class="tmdb-score-card">
             <span>TMDB 评分</span>
             <div><strong>{{ tmdbScore ?? '—' }}</strong><small>/10</small></div>
             <p><Star :size="13" fill="currentColor" />{{ voteLabel }}</p>
           </div>
-          <button v-if="isModuleVisible('trailer')" class="trailer-card" :disabled="!trailerUrl" @click="openTrailer">
+          <button v-if="isModuleShown('trailer')" class="trailer-card" :disabled="!trailerUrl" @click="openTrailer">
             <i><Play :size="17" fill="currentColor" /></i>
             <span><strong>{{ trailerUrl ? '预告片' : '预告片链接' }}</strong><small>{{ trailerUrl ? '播放网络视频' : '暂未提供 URL' }}</small></span>
           </button>
         </section>
 
-        <section v-if="isModuleVisible('facts')" class="quick-facts detail-module reveal-section" :style="{ order: moduleOrder('facts') }" aria-label="影片基础资料">
+        <section v-if="isModuleShown('facts')" class="quick-facts detail-module reveal-section" :style="{ order: moduleOrder('facts') }" aria-label="影片基础资料">
           <span><Clock3 :size="14" />{{ runtimeLabel }}</span>
           <span><Tag :size="14" />{{ movie.certification || genres[0] || '分级待定' }}</span>
         </section>
 
-        <section v-if="isModuleVisible('synopsis')" class="detail-panel synopsis-panel detail-module reveal-section" :style="{ order: moduleOrder('synopsis') }">
+        <section v-if="isModuleShown('synopsis')" class="detail-panel synopsis-panel detail-module reveal-section" :style="{ order: moduleOrder('synopsis') }">
           <h2>剧情简介</h2>
           <p :class="{ expanded: overviewExpanded }">{{ movie.overview || '暂无剧情简介。TMDB 详情加载完成后会在这里展示影片介绍。' }}</p>
           <button v-if="canExpandOverview" class="text-action" @click="overviewExpanded = !overviewExpanded">
@@ -502,19 +512,19 @@ onBeforeUnmount(() => {
           </button>
         </section>
 
-        <section v-if="people.length && isModuleVisible('people')" class="detail-panel people-panel detail-module reveal-section" :style="{ order: moduleOrder('people') }">
+        <section v-if="people.length && isModuleShown('people')" class="detail-panel people-panel detail-module reveal-section" :style="{ order: moduleOrder('people') }">
           <div class="section-heading"><h2>主要演职员</h2><small>导演与主演</small></div>
           <div class="people-rail">
             <article v-for="person in people" :key="`${person.id}-${person.role}`" class="person-card">
               <button v-if="person.profile_path" class="person-photo" :style="{ backgroundImage: `url(${imageUrl(person.profile_path, 'w185')})` }" :aria-label="`查看${person.name}演员资料`" @click="openPerson(person)"></button>
-              <div v-else class="person-photo"><UserRound :size="20" /></div>
+              <button v-else class="person-photo" :aria-label="`查看${person.name}演员资料`" @click="openPerson(person)"><UserRound :size="20" /></button>
               <strong>{{ person.name }}</strong>
               <span>{{ person.role }}</span>
             </article>
           </div>
         </section>
 
-        <section v-if="isModuleVisible('record')" class="detail-panel record-panel detail-module reveal-section" :style="{ order: moduleOrder('record') }">
+        <section v-if="!previewMode && isModuleVisible('record')" class="detail-panel record-panel detail-module reveal-section" :style="{ order: moduleOrder('record') }">
           <div class="section-heading"><h2>我的记录</h2><small>{{ movie.watched ? '观影已完成' : '待看清单' }}</small></div>
           <div class="record-grid">
             <div><span>我的评分</span><strong>{{ personalScore ?? '—' }}<small v-if="personalScore">/10</small></strong></div>
@@ -523,7 +533,7 @@ onBeforeUnmount(() => {
           <blockquote>“{{ movie.feeling || (movie.watched ? '还没有写下短评。' : '加入待看清单，留给下一次观影。') }}”</blockquote>
         </section>
 
-        <section v-if="isModuleVisible('info') && (movie.filmInfo || movie.keywords?.length)" class="detail-panel extra-panel detail-module reveal-section" :style="{ order: moduleOrder('info') }">
+        <section v-if="isModuleShown('info') && (movie.filmInfo || movie.keywords?.length)" class="detail-panel extra-panel detail-module reveal-section" :style="{ order: moduleOrder('info') }">
           <div class="section-heading"><h2>影片资料</h2><small>TMDB FILE</small></div>
           <div class="film-info-grid">
             <div><span>原始语言</span><strong>{{ movie.filmInfo?.originalLanguage?.toUpperCase() || '—' }}</strong></div>
@@ -537,7 +547,7 @@ onBeforeUnmount(() => {
           </button>
         </section>
 
-        <section v-if="isModuleVisible('production') && (movie.crew?.length || movie.productionCompanies?.length)" class="detail-panel production-panel detail-module reveal-section" :style="{ order: moduleOrder('production') }">
+        <section v-if="isModuleShown('production') && (movie.crew?.length || movie.productionCompanies?.length)" class="detail-panel production-panel detail-module reveal-section" :style="{ order: moduleOrder('production') }">
           <div class="section-heading"><h2>幕后制作</h2><small>CREW</small></div>
           <div v-if="visibleCrew.length" class="crew-list">
             <button v-for="person in visibleCrew" :key="`${person.id}-${person.role}`" @click="openPerson(person)"><span>{{ person.role }}</span><strong>{{ person.name }}</strong></button>
@@ -550,7 +560,7 @@ onBeforeUnmount(() => {
           </button>
         </section>
 
-        <section v-if="isModuleVisible('releases') && movie.releases?.length" class="detail-panel releases-panel detail-module reveal-section" :style="{ order: moduleOrder('releases') }">
+        <section v-if="isModuleShown('releases') && movie.releases?.length" class="detail-panel releases-panel detail-module reveal-section" :style="{ order: moduleOrder('releases') }">
           <div class="section-heading"><h2>地区上映</h2><small>{{ movie.releases.length }} 个地区</small></div>
           <div class="release-list"><article v-for="release in visibleReleases" :key="`${release.country}-${release.date}`"><strong>{{ release.country }}</strong><div><span>{{ release.date || '日期待定' }}</span><small>{{ releaseTypeLabel(release.type) }}<template v-if="release.certification"> · {{ release.certification }}</template></small></div></article></div>
           <button v-if="movie.releases.length > 2" class="text-action panel-expand" @click="releasesExpanded = !releasesExpanded">
@@ -558,7 +568,7 @@ onBeforeUnmount(() => {
           </button>
         </section>
 
-        <section v-if="isModuleVisible('videos') && movie.videos?.length" class="detail-panel videos-panel detail-module reveal-section" :style="{ order: moduleOrder('videos') }">
+        <section v-if="isModuleShown('videos') && movie.videos?.length" class="detail-panel videos-panel detail-module reveal-section" :style="{ order: moduleOrder('videos') }">
           <div class="section-heading"><h2>影片视频</h2><small>链接播放</small></div>
           <div class="video-list"><button v-for="video in visibleVideos" :key="video.id" @click="openExternal(video.url)"><i><Play :size="15" fill="currentColor" /></i><span><strong>{{ video.name }}</strong><small>{{ video.type }}<template v-if="video.official"> · 官方</template></small></span></button></div>
           <button v-if="movie.videos.length > 2" class="text-action panel-expand" @click="videosExpanded = !videosExpanded">
@@ -566,18 +576,18 @@ onBeforeUnmount(() => {
           </button>
         </section>
 
-        <section v-if="isModuleVisible('posters') && movie.posters?.length" class="detail-panel posters-panel detail-module reveal-section" :style="{ order: moduleOrder('posters') }">
+        <section v-if="isModuleShown('posters') && movie.posters?.length" class="detail-panel posters-panel detail-module reveal-section" :style="{ order: moduleOrder('posters') }">
           <div class="section-heading"><h2>海报画廊</h2><small>点击放大</small></div>
           <div class="poster-rail"><button v-for="(poster, index) in movie.posters" :key="poster.file_path" :aria-label="`放大查看第 ${Number(index) + 1} 张电影海报`" @click="openImage(imageUrl(poster.file_path), `${movie.title} · 海报 ${String(Number(index) + 1).padStart(2, '0')}`, 'contain', posterViewerImages, posterViewerIndex(poster.file_path))"><img :src="imageUrl(poster.file_path, 'w342')" :alt="`${movie.title}海报${Number(index) + 1}`" /><span>{{ poster.language?.toUpperCase() || 'ART' }}</span></button></div>
         </section>
 
-        <section v-if="isModuleVisible('collection') && movie.collection?.parts?.length" class="detail-panel collection-panel detail-module reveal-section" :style="{ order: moduleOrder('collection') }">
+        <section v-if="isModuleShown('collection') && movie.collection?.parts?.length" class="detail-panel collection-panel detail-module reveal-section" :style="{ order: moduleOrder('collection') }">
           <div class="collection-heading" :style="movie.collection.backdrop_path ? { backgroundImage: `url(${imageUrl(movie.collection.backdrop_path, 'w780')})` } : {}"><div><small>COLLECTION</small><h2>{{ movie.collection.name }}</h2></div></div>
           <p v-if="movie.collection.overview">{{ movie.collection.overview }}</p>
-          <div class="collection-parts"><article v-for="part in movie.collection.parts" :key="part.id"><img v-if="part.poster_path" :src="imageUrl(part.poster_path, 'w185')" :alt="part.title" /><div v-else></div><strong>{{ part.title }}</strong><span>{{ part.year }}</span></article></div>
+          <div class="collection-parts"><button v-for="part in movie.collection.parts" :key="part.id" type="button" :aria-label="`预览${part.title}`" @click="previewMovie(part)"><img v-if="part.poster_path" :src="imageUrl(part.poster_path, 'w185')" :alt="part.title" /><div v-else></div><strong>{{ part.title }}</strong><span>{{ part.year }}</span></button></div>
         </section>
 
-        <section v-if="isModuleVisible('stills') && movieStills.length" class="detail-panel stills-panel detail-module reveal-section" :style="{ order: moduleOrder('stills') }">
+        <section v-if="isModuleShown('stills') && movieStills.length" class="detail-panel stills-panel detail-module reveal-section" :style="{ order: moduleOrder('stills') }">
           <div class="section-heading"><h2>电影剧照</h2><small>左右滑动 · 点击放大</small></div>
           <div class="stills-rail" aria-label="电影剧照画廊">
             <button v-for="(still, index) in movieStills" :key="still" :aria-label="`放大查看第 ${index + 1} 张电影剧照`" @click="openImage(imageUrl(still), `${movie.title} · 剧照 ${String(index + 1).padStart(2, '0')}`, 'contain', stillViewerImages, index)">
@@ -587,7 +597,7 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <div class="detail-end" style="order: 99">影片资料由 TMDB 提供</div>
+        <div class="detail-end" style="order: 99">{{ previewMode ? '轻量预览 · 保存后查看完整资料' : '影片资料由 TMDB 提供' }}</div>
       </div>
     </div>
 
@@ -633,17 +643,17 @@ onBeforeUnmount(() => {
     <DatePickerDialog v-model="draftDate" v-model:open="recordDatePickerOpen" title="选择观看日期" />
 
     <footer class="detail-dock">
-      <button class="detail-neighbour detail-neighbour--previous" aria-label="上一部" @click="switchMovie(-1)"><ChevronLeft :size="15" /><span>上一个</span></button>
-      <button class="edit-dock" aria-label="编辑我的记录" @click="openRecordEditor"><Pencil :size="24" /></button>
-      <button class="detail-neighbour detail-neighbour--next" aria-label="下一部" @click="switchMovie(1)"><span>下一个</span><ChevronRight :size="15" /></button>
+      <button v-if="!previewMode" class="detail-neighbour detail-neighbour--previous" aria-label="上一部" @click="switchMovie(-1)"><ChevronLeft :size="15" /><span>上一个</span></button>
+      <button v-if="!previewMode" class="edit-dock" aria-label="编辑我的记录" @click="openRecordEditor"><Pencil :size="24" /></button>
+      <button v-if="!previewMode" class="detail-neighbour detail-neighbour--next" aria-label="下一部" @click="switchMovie(1)"><span>下一个</span><ChevronRight :size="15" /></button>
       <div class="watch-island">
-        <button class="watch-toggle" :class="{ watched: movie.watched }" :aria-label="`当前${movie.watched ? '已观看' : '未观看'}，点击切换`" @click="toggleWatched">
-          <Check v-if="movie.watched" :size="13" /><span>{{ movie.watched ? '已观看' : '未观看' }}</span>
+        <button class="watch-toggle" :class="{ watched: movie.watched && !previewMode, preview: previewMode }" :aria-label="previewMode ? '当前未保存，点击添加' : `当前${movie.watched ? '已观看' : '未观看'}，点击切换`" @click="previewMode ? emit('request-save') : toggleWatched()">
+          <Check v-if="movie.watched && !previewMode" :size="13" /><span>{{ previewMode ? '未保存' : movie.watched ? '已观看' : '未观看' }}</span>
         </button>
       </div>
     </footer>
     <ImageViewer v-if="viewerImage" v-bind="viewerImage" @close="viewerImage = null" />
-    <PersonDetailModal v-if="selectedPerson" :person="selectedPerson" :image-src="imageUrl(selectedPerson.profile_path, 'w500')" @close="selectedPerson = null" />
+    <PersonDetailModal v-if="selectedPerson" :person="selectedPerson" :image-src="imageUrl(selectedPerson.profile_path, 'w500')" @close="selectedPerson = null" @preview="previewMovie" />
   </article>
 </template>
 
@@ -653,7 +663,9 @@ onBeforeUnmount(() => {
 .movie-detail.motion-high { animation:detail-gravity-home .58s cubic-bezier(.16,1,.3,1) both; }
 .movie-detail.motion-high.entry-list { transform-origin:14% 72%; animation-name:detail-gravity-list; }
 .movie-detail.motion-high.entry-library { transform-origin:100% 50%; animation:detail-library-cover-high .58s cubic-bezier(.16,1,.3,1) both; }
+.movie-detail.motion-high.entry-preview { animation:detail-side-in .34s cubic-bezier(.16,1,.3,1) both; }
 .movie-detail.motion-medium { animation:detail-side-in .46s cubic-bezier(.16,1,.3,1) both; }
+.movie-detail.motion-medium.entry-preview { animation-duration:.3s; }
 .movie-detail.motion-medium.entry-list { animation-name:detail-side-in-list; }
 .movie-detail.motion-medium.entry-library { animation:detail-library-cover-medium .44s cubic-bezier(.2,.8,.2,1) both; }
 .movie-detail.motion-low { animation:detail-low-in .22s ease-out both; }
@@ -682,7 +694,7 @@ onBeforeUnmount(() => {
 .movie-detail.motion-low .detail-backdrop{transition:transform .16s ease-out}
 .movie-detail--pop{--accent:#efaa74}.movie-detail--crayon{--accent:#ffd06c}.movie-detail--coco{--accent:#df9e72}
 .detail-backdrop{position:absolute;inset:0 auto auto 0;width:100%;height:100%;clip-path:inset(0 0 var(--backdrop-clip) 0);contain:paint;background-size:cover;background-position:center 20%;opacity:1;transform:scale(calc(1.035 + var(--scroll) * .018)) translateY(calc(var(--scroll) * -5px));transform-origin:50% 0;transition:transform .2s ease-out;will-change:clip-path,transform;animation:backdrop-open .72s cubic-bezier(.18,.88,.2,1) both}.detail-backdrop::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 0 40%,rgba(7,16,15,.2) 61%,rgba(7,16,15,.84) 84%,var(--screen) 100%)}
-.detail-topbar{position:absolute;z-index:5;top:24px;right:18px;left:18px;display:flex;align-items:center;justify-content:space-between}.detail-topbar button{display:grid;place-items:center;width:42px;height:42px;padding:0;color:#fff7ef;border:1px solid rgba(255,255,255,.35);border-radius:50%;background:rgba(12,18,18,.28);box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 8px 20px rgba(0,0,0,.18);backdrop-filter:blur(18px) saturate(1.35)}.detail-topbar button.active{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 55%,transparent)}
+.detail-topbar{position:absolute;z-index:5;top:max(36px,calc(env(safe-area-inset-top) + 12px));right:18px;left:18px;display:flex;align-items:center;justify-content:space-between}.detail-topbar button{display:grid;place-items:center;width:42px;height:42px;padding:0;color:#fff7ef;border:1px solid rgba(255,255,255,.35);border-radius:50%;background:rgba(12,18,18,.28);box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 8px 20px rgba(0,0,0,.18);backdrop-filter:blur(18px) saturate(1.35)}.detail-topbar button.active{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 55%,transparent)}
 .detail-swipe-hint{padding:6px 10px;color:rgba(255,247,239,.58);border:1px solid rgba(255,255,255,.13);border-radius:999px;background:rgba(13,16,18,.18);backdrop-filter:blur(14px);font-size:8px;font-weight:700;letter-spacing:.03em;pointer-events:none}
 .detail-scroll{position:absolute;inset:0;padding:0 18px 112px;overflow-y:auto;scrollbar-width:none;overscroll-behavior:contain}.detail-scroll::-webkit-scrollbar{display:none}.detail-hero-copy{display:flex;min-height:520px;flex-direction:column;justify-content:end;padding:100px 3px 28px;animation:detail-copy-in .72s cubic-bezier(.16,1,.3,1) .2s both}.detail-cover-card{width:106px;aspect-ratio:2/3;margin:0 0 14px;overflow:hidden;border:1px solid rgba(255,255,255,.3);border-radius:17px;background:rgba(4,10,10,.38);box-shadow:0 15px 34px rgba(0,0,0,.34),inset 0 1px rgba(255,255,255,.15);animation:title-rise .62s cubic-bezier(.16,1,.3,1) .04s both}.detail-cover-card img{display:block;width:100%;height:100%;object-fit:contain}.detail-original{margin:0 0 7px;color:rgba(255,247,239,.68);font:11px Georgia,serif;letter-spacing:.04em}.detail-hero-copy h1{max-width:350px;margin:0;font:500 29px/1.18 Georgia,'Songti SC',serif;letter-spacing:-.045em;text-shadow:0 3px 18px rgba(0,0,0,.42)}.detail-meta{display:flex;align-items:center;gap:9px;margin-top:15px;color:rgba(255,247,239,.68);font-size:9px}.detail-meta i{width:3px;height:3px;border-radius:50%;background:rgba(255,255,255,.45)}
 .detail-content{display:grid;gap:18px;padding-bottom:28px}.detail-tagline{margin:0 4px 2px;color:var(--accent);font:13px/1.6 Georgia,'Songti SC',serif}.detail-load-state{display:flex;align-items:center;gap:7px;padding:10px 12px;color:rgba(247,241,232,.66);border:1px solid rgba(255,255,255,.08);border-radius:13px;background:rgba(255,255,255,.025);font-size:9px}.detail-load-state svg{color:var(--accent);animation:loading-spin .9s linear infinite}.detail-load-state.is-error{color:#e7a69a;border-color:rgba(231,166,154,.16)}.reveal-section{--reveal-delay:0ms;opacity:0;filter:blur(7px);transform:translateY(42px) scale(.975);transition:opacity .64s ease var(--reveal-delay),filter .62s ease var(--reveal-delay),transform .82s cubic-bezier(.16,1,.3,1) var(--reveal-delay);will-change:opacity,filter,transform}.reveal-section.is-visible{opacity:1;filter:blur(0);transform:translateY(0) scale(1)}.score-actions{--reveal-delay:20ms}.quick-facts{--reveal-delay:55ms}.synopsis-panel{--reveal-delay:90ms}.people-panel{--reveal-delay:105ms}.record-panel{--reveal-delay:120ms}
@@ -770,5 +782,6 @@ onBeforeUnmount(() => {
 @keyframes detail-gravity-list{0%{opacity:.78;transform:translate3d(-34px,10px,0) scale(.986)}62%{opacity:1;transform:translate3d(4px,-1px,0) scale(1.002)}100%{opacity:1;transform:translate3d(0,0,0) scale(1)}}
 @keyframes backdrop-open{from{transform:scale(1.17) translate3d(0,-16px,0)}to{transform:scale(calc(1.045 + var(--scroll) * .065)) translate3d(0,calc(var(--scroll) * -12px),0)}}
 .detail-fixed-title{display:grid;min-width:0;max-width:210px;padding:6px 10px;border:1px solid rgba(255,255,255,.13);border-radius:13px;background:rgba(13,16,18,.32);backdrop-filter:blur(14px);text-align:center}.detail-fixed-title strong{overflow:hidden;color:#fff8ef;font-size:10px;text-overflow:ellipsis;white-space:nowrap}.detail-fixed-title small{margin-top:2px;color:rgba(255,247,239,.5);font-size:6px}.detail-neighbour{position:absolute;display:flex;align-items:center;gap:3px;height:30px;padding:0 9px;color:rgba(255,255,255,.74);border:1px solid rgba(255,255,255,.12);border-radius:11px;background:rgba(23,24,27,.92);font-size:7px;font-weight:800;pointer-events:auto}.detail-neighbour--previous{bottom:64px;left:0;border-radius:0 11px 11px 0}.detail-neighbour--next{right:0;bottom:64px;border-radius:11px 0 0 11px}.detail-neighbour:active{transform:scale(.94)}.movie-detail.motion-high .record-editor-enter-active .record-editor-sheet>*{animation:none}.movie-detail.motion-high .record-editor-enter-active .record-editor-sheet{animation-duration:.38s}.movie-detail.motion-high .record-editor-backdrop{backdrop-filter:blur(4px)}
+.movie-detail.is-preview .detail-topbar{justify-content:flex-start}.movie-detail.is-preview .watch-island{width:108px}.movie-detail.is-preview .watch-toggle.preview{color:#171a19;border-color:var(--accent);background:var(--accent);box-shadow:0 8px 22px color-mix(in srgb,var(--accent) 30%,rgba(0,0,0,.28))}.movie-detail.is-preview .watch-toggle.preview::before{border-color:#171a19;box-shadow:none}.collection-parts button{flex:0 0 72px;min-width:0;padding:0;text-align:left;border:0;background:transparent}.collection-parts button>div{display:block;width:72px;height:104px;border-radius:11px;background:rgba(255,255,255,.05)}.collection-parts button:active{transform:scale(.94)}
 @keyframes detail-native-high-in{from{opacity:.72;transform:translate3d(18px,8px,0) scale(.992)}to{opacity:1;transform:none}}@keyframes detail-native-high-out{from{opacity:1;transform:none}to{opacity:0;transform:translate3d(0,20px,0) scale(.985)}}
 </style>

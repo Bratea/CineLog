@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } 
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
 import type { HttpResponse } from '@capacitor/core'
-import { ArrowDownUp, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, FileText, FolderTree, GripVertical, HardDrive, House, LayoutPanelTop, MoonStar, Pencil, Play, RefreshCw, Search, SlidersHorizontal, Star, Trash2, Upload, X } from 'lucide-vue-next'
+import { ArrowDownUp, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, FileText, FolderTree, GripVertical, HardDrive, House, LayoutPanelTop, MoonStar, Pencil, Play, RotateCcw, Search, SlidersHorizontal, Star, Trash2, Upload, X } from 'lucide-vue-next'
 import MovieCarousel from './components/MovieCarousel.vue'
 import MovieList from './components/MovieList.vue'
 import MovieDetail from './components/MovieDetail.vue'
@@ -28,7 +28,10 @@ const isNativeApp = Capacitor.isNativePlatform()
 const STARTUP_ANIMATION_ENABLED_KEY = 'cinelog-startup-animation-enabled'
 const MOTION_INTENSITY_KEY = 'cinelog-motion-intensity'
 const THEME_MODE_KEY = 'cinelog-theme-mode'
+const HOME_VIEW_MODE_KEY = 'cinelog-home-view-mode'
 const MOVIE_RECORDS_STORAGE_KEY = 'movie-records'
+const NOTICE_DURATION = 1700
+const RECORD_NOTICE_DURATION = 2000
 const LEGACY_SAMPLE_POSTERS = new Set(['pop', 'demon', 'crayon', 'coco'])
 type ThemeMode = 'system' | 'light' | 'dark'
 type MotionIntensity = 'high' | 'medium' | 'low'
@@ -38,7 +41,7 @@ const themeMode = ref<ThemeMode>(storedThemeMode === 'light' || storedThemeMode 
 const motionIntensity = ref<MotionIntensity>(
   storedMotionIntensity === 'high' || storedMotionIntensity === 'medium' || storedMotionIntensity === 'low'
     ? storedMotionIntensity
-    : isNativeApp ? 'medium' : 'high',
+    : 'high',
 )
 const systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)')
 const systemDark = ref(systemThemeQuery.matches)
@@ -52,6 +55,7 @@ const statusSwitching = ref(false)
 let startupAnimationTimer
 let viewModeSwitchTimer
 let statusSwitchTimer
+const buttonFeedbackAnimations = new WeakMap<HTMLButtonElement, Animation>()
 
 function completeStartupAnimation() {
   if (!showStartupAnimation.value) return
@@ -138,8 +142,11 @@ hydrateMovieRecords()
 const activeTab = ref('home')
 const addOpen = ref(false)
 const username = ref(localStorage.getItem('movie-username') || '通通')
-const activeWatchStat = ref('watched')
-const viewMode = ref('cards')
+const savedHomeWatchPriority = localStorage.getItem('movie-home-watch-priority')
+const homeWatchPriority = ref<'watched' | 'unwatched'>(savedHomeWatchPriority === 'unwatched' ? 'unwatched' : 'watched')
+const activeWatchStat = ref(homeWatchPriority.value)
+const storedHomeViewMode = localStorage.getItem(HOME_VIEW_MODE_KEY)
+const viewMode = ref<'cards' | 'list'>(storedHomeViewMode === 'list' ? 'list' : 'cards')
 const homeSwapTransition = ref('card-swap')
 const savedStatPeriod = localStorage.getItem('movie-stat-period')
 const statPeriod = ref(['year', 'month', 'day'].includes(savedStatPeriod || '') ? savedStatPeriod : 'year')
@@ -148,9 +155,11 @@ const homeDisplayLimit = ref(Number.isFinite(savedHomeDisplayLimit) && savedHome
 const homeCustomLimitOpen = ref(false)
 const homeCustomLimitInput = ref(String(homeDisplayLimit.value))
 const selectedYear = ref('2026')
-const selectedMovie = ref(null)
+const selectedMovie = ref<Movie | null>(null)
 const detailOrigin = ref('home')
 const detailEntry = ref('home')
+const detailPreviewStack = ref<Array<{ movie: Movie; entry: string }>>([])
+const previewSaveOpen = ref(false)
 const transitionDirection = ref('forward')
 const libraryQuery = ref('')
 const libraryYear = ref('all')
@@ -169,13 +178,17 @@ const profileBackgroundColor = ref(localStorage.getItem('movie-profile-backgroun
 const avatarRingColor = ref(localStorage.getItem('movie-avatar-ring') || '#cba777')
 const activeProfileColor = ref(null)
 const pendingProfileColor = ref('#ffffff')
-const profileSaveState = ref('idle')
 const profileColorPresets = ['#ffffff', '#e9f1ff', '#eee5f7', '#dff2e7', '#1d1e21', '#6b3fd4', '#b56576', '#2d6b50']
+const TMDB_API_BASE = 'https://api.themoviedb.org/3'
+const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p'
 const tmdbToken = ref(localStorage.getItem('movie-tmdb-token') || '')
-const tmdbApiBase = ref('https://api.themoviedb.org/3')
-const tmdbImageBase = ref('https://image.tmdb.org/t/p')
-localStorage.setItem('movie-tmdb-network-mode', 'official')
-const tmdbEndpointRefreshState = ref('idle')
+const tmdbApiBase = ref(TMDB_API_BASE)
+const tmdbImageBase = ref(TMDB_IMAGE_BASE)
+localStorage.setItem('movie-tmdb-api-base', TMDB_API_BASE)
+localStorage.setItem('movie-tmdb-image-base', TMDB_IMAGE_BASE)
+localStorage.removeItem('movie-tmdb-network-mode')
+localStorage.removeItem('movie-tmdb-custom-api-base')
+localStorage.removeItem('movie-tmdb-custom-image-base')
 const tmdbTestState = ref('idle')
 const tmdbTestMessage = ref('')
 const expandedLibraryId = ref(null)
@@ -208,6 +221,24 @@ const addDatePickerOpen = ref(false)
 const addRating = ref(0)
 const addReview = ref('')
 const overviewExpanded = ref(false)
+const isPreviewDetail = computed(() => currentPage.value === 'detail' && detailPreviewStack.value.length > 0)
+const previewAddResult = computed(() => {
+  const movie = selectedMovie.value
+  if (!movie || !isPreviewDetail.value) return null
+  return {
+    id: movie.tmdbId ?? movie.id,
+    title: movie.title,
+    original_title: movie.original_title || movie.originalTitle || movie.title,
+    release_date: movie.release_date || movie.releaseDate || (movie.year ? `${movie.year}-01-01` : ''),
+    vote_average: movie.vote_average ?? movie.tmdbRating ?? 0,
+    vote_count: movie.vote_count ?? movie.tmdbVoteCount ?? 0,
+    original_language: movie.original_language || movie.filmInfo?.originalLanguage || '',
+    genre_ids: movie.genre_ids || (movie.genres || []).map((genre) => typeof genre === 'object' ? genre.id : null).filter(Boolean),
+    poster_path: movie.poster_path,
+    backdrop_path: movie.backdrop_path,
+    overview: movie.overview || '',
+  }
+})
 type NoticeItem = { id: number; title: string; message?: string; tone?: string; type?: string }
 const recordNotices = ref<NoticeItem[]>([])
 const libraryNotices = ref<NoticeItem[]>([])
@@ -498,7 +529,13 @@ const displayedMovies = computed(() => filteredMovies.value.slice(0, homeDisplay
 const surfaceTransitionName = computed(() => transitionDirection.value === 'forward' ? 'surface-forward' : 'surface-back')
 const surfaceTransitionDuration = computed(() => ({ high: 720, medium: 480, low: 260 })[motionIntensity.value])
 const settingsTransitionName = computed(() => settingsDirection.value === 'forward' ? 'settings-forward' : 'settings-back')
-const surfacePage = computed(() => currentPage.value === 'detail' ? detailOrigin.value : currentPage.value)
+const surfacePage = computed(() => {
+  if (currentPage.value === 'detail') return detailOrigin.value
+  // Keep the home surface mounted behind settings. Rebuilding it while the
+  // settings shell exits can leave Android WebView showing a transparent frame.
+  if (currentPage.value === 'settings') return 'home'
+  return currentPage.value
+})
 const libraryYears = computed(() => [...new Set(movieRecords.value.map((movie) => movie.year))].sort().reverse())
 const libraryYearOptions = computed(() => {
   const currentYear = new Date().getFullYear()
@@ -516,12 +553,11 @@ const activeCategoryLabel = computed(() => {
 const libraryStatusTitle = computed(() => ({ all: '全部', watched: '已观看', unwatched: '未观看', favourite: '收藏' })[libraryWatchFilter.value])
 const libraryStatusFrames = computed(() => [libraryStatusTitle.value])
 const libraryMediaFrames = computed(() => [libraryMediaType.value])
-const libraryWatchStates = computed(() => [
-  { value: 'all', label: '全部', count: movieRecords.value.length },
+const libraryWatchStates = computed<Array<{ value: 'watched' | 'unwatched'; label: string; count: number }>>(() => [
   { value: 'watched', label: '已看', count: watchedCount.value },
   { value: 'unwatched', label: '未看', count: unwatchedCount.value },
 ])
-const activeLibraryWatchState = computed(() => libraryWatchStates.value.find((state) => state.value === libraryWatchFilter.value) || libraryWatchStates.value[0])
+const libraryWatchResetVisible = computed(() => libraryWatchFilter.value !== 'all')
 const selectedLibraryDate = computed(() => statPeriod.value === 'year' ? String(libraryYearValue.value) : statPeriod.value === 'month' ? `${libraryYearValue.value}-${String(libraryMonthValue.value).padStart(2, '0')}` : `${libraryYearValue.value}-${String(libraryMonthValue.value).padStart(2, '0')}-${String(selectedLibraryDay.value).padStart(2, '0')}`)
 const libraryMovies = computed(() => {
   const keyword = libraryQuery.value.trim().toLocaleLowerCase('zh-CN')
@@ -547,19 +583,12 @@ const libraryMovies = computed(() => {
 watch(username, (value) => localStorage.setItem('movie-username', value || '用户'))
 watch(statPeriod, (value) => localStorage.setItem('movie-stat-period', value))
 watch(homeDisplayLimit, (value) => localStorage.setItem('movie-home-limit', String(value)))
+watch(viewMode, (value) => localStorage.setItem(HOME_VIEW_MODE_KEY, value))
+watch(homeWatchPriority, (value) => localStorage.setItem('movie-home-watch-priority', value))
 watch(avatarUrl, (value) => localStorage.setItem('movie-avatar-url', value.trim()))
 watch(profileBackgroundColor, (value) => localStorage.setItem('movie-profile-background', value))
 watch(avatarRingColor, (value) => localStorage.setItem('movie-avatar-ring', value))
-watch([username, avatarUrl, profileBackgroundColor, avatarRingColor], () => {
-  if (profileSaveState.value === 'saved') profileSaveState.value = 'dirty'
-})
 watch(tmdbToken, (value) => localStorage.setItem('movie-tmdb-token', value.trim()))
-watch(tmdbApiBase, (value) => {
-  localStorage.setItem('movie-tmdb-api-base', value.trim())
-})
-watch(tmdbImageBase, (value) => {
-  localStorage.setItem('movie-tmdb-image-base', value.trim())
-})
 watch(libraryTagLimit, (value) => localStorage.setItem('movie-library-tag-limit', String(value)))
 watch(libraryControlsSide, (value) => localStorage.setItem('movie-library-controls-side', value))
 watch(librarySortBy, (value) => localStorage.setItem('movie-library-sort', value))
@@ -614,6 +643,11 @@ function setWatchStat(value) {
   statusSwitchTimer = window.setTimeout(() => {
     statusSwitching.value = false
   }, switchDuration)
+}
+
+function setHomeWatchPriority(value: 'watched' | 'unwatched') {
+  homeWatchPriority.value = value
+  setWatchStat(value)
 }
 
 function toggleViewMode() {
@@ -732,15 +766,17 @@ function markWatched(payload) {
     if (!movie.watchedDate) movie.watchedDate = localDateKey()
   }
   if (typeof payload === 'object' && payload.source === 'carousel-swipe') {
-    pushNotice(homeNotices, { title: '已完成观看', message: `《${payload.title || movie?.title || '这部电影'}》已移入已观看`, tone: 'success' }, 2400)
+    pushNotice(homeNotices, { title: '已完成观看', message: `《${payload.title || movie?.title || '这部电影'}》已移入已观看`, tone: 'success' }, NOTICE_DURATION)
   }
 }
 
 function showHomeWatchNotice(movie) {
-  pushNotice(homeNotices, { title: '再点一次确认', message: `将《${movie.title}》设为已观看`, tone: 'warning' }, 2400)
+  pushNotice(homeNotices, { title: '再点一次确认', message: `将《${movie.title}》设为已观看`, tone: 'warning' }, NOTICE_DURATION)
 }
 
 function openDetail(movie) {
+  detailPreviewStack.value = []
+  previewSaveOpen.value = false
   selectedMovie.value = movie
   detailOrigin.value = currentPage.value
   detailEntry.value = 'home'
@@ -748,9 +784,14 @@ function openDetail(movie) {
   ensureTmdbDetails(movie)
 }
 
-function cycleLibraryWatchFilter() {
-  const index = libraryWatchStates.value.findIndex((state) => state.value === libraryWatchFilter.value)
-  libraryWatchFilter.value = libraryWatchStates.value[(index + 1) % libraryWatchStates.value.length].value
+function setLibraryWatchFilter(value: 'watched' | 'unwatched' | 'favourite') {
+  libraryWatchFilter.value = value
+  expandedLibraryId.value = null
+}
+
+function resetLibraryWatchFilter() {
+  libraryWatchFilter.value = 'all'
+  expandedLibraryId.value = null
 }
 
 function resetLibraryDate() {
@@ -782,6 +823,8 @@ function prependMovieRecords(records) {
 }
 
 function openDetailFromPoster(movie: Movie, source: Element | null) {
+  detailPreviewStack.value = []
+  previewSaveOpen.value = false
   const poster = source?.querySelector?.('.library-poster, .movie-list-poster')
   const posterRect = poster?.getBoundingClientRect()
   const phoneRect = phoneShell.value?.getBoundingClientRect()
@@ -811,6 +854,8 @@ function openDetailFromPoster(movie: Movie, source: Element | null) {
 }
 
 function openLibraryDetail(movie: Movie) {
+  detailPreviewStack.value = []
+  previewSaveOpen.value = false
   posterFlight.value = null
   detailOrigin.value = 'library'
   detailEntry.value = 'library'
@@ -824,6 +869,17 @@ function openHomeListDetail(payload) {
 }
 
 function closeDetail() {
+  if (previewSaveOpen.value) {
+    previewSaveOpen.value = false
+    addDatePickerOpen.value = false
+    return
+  }
+  const previousPreview = detailPreviewStack.value.pop()
+  if (previousPreview) {
+    selectedMovie.value = previousPreview.movie
+    detailEntry.value = previousPreview.entry
+    return
+  }
   transitionDirection.value = detailOrigin.value === 'home' ? 'back' : 'forward'
   currentPage.value = detailOrigin.value
   selectedMovie.value = null
@@ -889,6 +945,29 @@ function backFromSettings() {
   }
   transitionDirection.value = 'back'
   currentPage.value = 'home'
+}
+
+function animateButtonFeedback(event: MouseEvent) {
+  const target = (event.target as HTMLElement | null)?.closest?.('button') as HTMLButtonElement | null
+  if (!target || target.disabled) return
+  const intensity: MotionIntensity = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'low' : motionIntensity.value
+  const frames = {
+    high: [{ scale: '1' }, { scale: '.88', offset: .32 }, { scale: '1.065', offset: .7 }, { scale: '1' }],
+    medium: [{ scale: '1' }, { scale: '.94', offset: .4 }, { scale: '1.025', offset: .76 }, { scale: '1' }],
+    low: [{ scale: '1' }, { scale: '.975', offset: .5 }, { scale: '1' }],
+  }[intensity]
+  const duration = ({ high: 460, medium: 320, low: 180 })[intensity]
+  buttonFeedbackAnimations.get(target)?.cancel()
+  const animation = target.animate(frames, { duration, easing: 'cubic-bezier(.16,1,.3,1)' })
+  buttonFeedbackAnimations.set(target, animation)
+  animation.finished.catch(() => {}).finally(() => {
+    if (buttonFeedbackAnimations.get(target) === animation) buttonFeedbackAnimations.delete(target)
+  })
+}
+
+function handlePhoneClick(event: MouseEvent) {
+  animateButtonFeedback(event)
+  animateSettingsChoice(event)
 }
 
 function animateSettingsChoice(event: MouseEvent) {
@@ -1009,7 +1088,7 @@ function animateSettingsChoice(event: MouseEvent) {
 }
 
 function showSettingsAutoSaved(message = '更改已写入当前设备') {
-  pushNotice(settingsNotices, { title: '设置已自动保存', message, tone: 'success' }, 2300)
+  pushNotice(settingsNotices, { title: '设置已自动保存', message, tone: 'success' }, NOTICE_DURATION)
 }
 
 function handleSettingsAutoInput(event: Event) {
@@ -1037,8 +1116,12 @@ function selectLibraryMediaType(type: string) {
     libraryMediaMenuOpen.value = false
     return
   }
+  if (previewSaveOpen.value) {
+    previewSaveOpen.value = false
+    return true
+  }
   libraryMediaType.value = type
-  const closeDelay = ({ high: 540, medium: 480, low: 150 })[motionIntensity.value]
+  const closeDelay = ({ high: 300, medium: 220, low: 110 })[motionIntensity.value]
   window.setTimeout(() => {
     libraryMediaMenuOpen.value = false
   }, closeDelay)
@@ -1050,7 +1133,7 @@ async function testTmdbConnection() {
   const imageBase = tmdbImageBase.value.trim().replace(/\/$/, '')
   if (!token || !base || !imageBase) {
     tmdbTestState.value = 'error'
-    tmdbTestMessage.value = '请先填写 API 密钥、API 地址和图片地址。'
+    tmdbTestMessage.value = '请先填写 API 密钥。'
     return
   }
   try {
@@ -1059,39 +1142,39 @@ async function testTmdbConnection() {
     if (apiUrl.protocol !== 'https:' || imageUrl.protocol !== 'https:') {
       throw new Error('API 与图片地址都必须使用 HTTPS（默认端口就是 443）')
     }
-    if (apiUrl.hostname !== 'api.themoviedb.org' || imageUrl.hostname !== 'image.tmdb.org') throw new Error('当前仅支持 TMDB 官方直连地址')
   } catch (error) {
     tmdbTestState.value = 'error'
     tmdbTestMessage.value = error instanceof Error ? error.message : '服务地址格式不正确。'
     return
   }
   tmdbTestState.value = 'testing'
-  tmdbTestMessage.value = '正在直连 TMDB 官方服务…'
+  tmdbTestMessage.value = '正在通过代理连接 TMDB…'
   try {
     const request = tmdbRequest(`${base}/configuration`)
     const response = await executeTmdbRequest(request)
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    if (!response.ok) {
+      tmdbTestState.value = 'error'
+      if (response.status === 401) {
+        tmdbTestMessage.value = '已连接到 TMDB，但 API 密钥无效（HTTP 401）。请重新粘贴 v3 API Key 或 v4 Read Access Token；可直接粘贴带 Bearer 前缀的 Token。'
+        return
+      }
+      if (response.status === 403) {
+        tmdbTestMessage.value = '已连接到 TMDB，但当前密钥没有访问权限（HTTP 403）。请检查密钥状态与账户权限。'
+        return
+      }
+      throw new Error(`HTTP ${response.status}`)
+    }
     tmdbTestState.value = 'success'
-    tmdbTestMessage.value = 'TMDB 官方直连成功。'
+    tmdbTestMessage.value = 'TMDB 连接成功。'
   } catch (error) {
     tmdbTestState.value = 'error'
-    const hint = '中国大陆网络通常无法直接访问，请先开启手机或电脑的系统代理后重试。'
     const reason = error instanceof Error ? error.message : String(error)
-    tmdbTestMessage.value = `连接失败（${reason}）。${hint}`
+    tmdbTestMessage.value = `连接失败（${reason}）。请确认代理已开启，并检查 API 密钥后重试。`
   }
 }
 
-function refreshTmdbEndpoints() {
-  tmdbApiBase.value = 'https://api.themoviedb.org/3'
-  tmdbImageBase.value = 'https://image.tmdb.org/t/p'
-  tmdbTestState.value = 'idle'
-  tmdbTestMessage.value = ''
-  tmdbEndpointRefreshState.value = 'refreshed'
-  window.setTimeout(() => { tmdbEndpointRefreshState.value = 'idle' }, 1400)
-}
-
 function tmdbRequest(url, params = {}) {
-  const credential = tmdbToken.value.trim()
+  const credential = tmdbToken.value.trim().replace(/^Bearer\s+/i, '').replace(/^['"]|['"]$/g, '').trim()
   const search = new URLSearchParams(params)
   const headers: Record<string, string> = { accept: 'application/json' }
   if (credential.startsWith('eyJ')) headers.Authorization = `Bearer ${credential}`
@@ -1122,7 +1205,7 @@ async function executeTmdbRequest(request) {
       const message = String(error?.message || error || '')
       if (/timeout|timed out/i.test(message)) throw new Error('连接超时')
       if (/unable to resolve host|unknown host|dns/i.test(message)) throw new Error('手机无法解析 TMDB 域名')
-      if (/cleartext/i.test(message)) throw new Error('自定义地址必须使用 HTTPS')
+      if (/cleartext/i.test(message)) throw new Error('TMDB 官方服务必须使用 HTTPS')
       throw new Error(message || '手机网络请求失败')
     }
   }
@@ -1160,6 +1243,7 @@ function handleAvatarUpload(event) {
       canvas.getContext('2d').drawImage(image, offsetX, offsetY, side, side, 0, 0, size, size)
       avatarUrl.value = canvas.toDataURL('image/jpeg', .86)
       avatarUploadMessage.value = `${file.name} · 已保存到当前浏览器`
+      showSettingsAutoSaved('本地头像已自动保存')
     }
     if (typeof reader.result === 'string') image.src = reader.result
   }
@@ -1179,15 +1263,7 @@ function confirmProfileColor() {
   if (activeProfileColor.value === 'background') profileBackgroundColor.value = pendingProfileColor.value
   if (activeProfileColor.value === 'ring') avatarRingColor.value = pendingProfileColor.value
   activeProfileColor.value = null
-  profileSaveState.value = 'dirty'
-}
-
-function saveProfileSettings() {
-  localStorage.setItem('movie-username', username.value || '用户')
-  localStorage.setItem('movie-avatar-url', avatarUrl.value.trim())
-  localStorage.setItem('movie-profile-background', profileBackgroundColor.value)
-  localStorage.setItem('movie-avatar-ring', avatarRingColor.value)
-  profileSaveState.value = 'saved'
+  showSettingsAutoSaved('个人资料颜色已自动保存')
 }
 
 function showHome() {
@@ -1214,7 +1290,7 @@ function dismissLibraryPopovers(event) {
 function libraryPosterStyle(movie) {
   const path = movie.backdropUrl || movie.posterUrl || movie.backdrop_path || movie.poster_path
   if (path) {
-    const src = path.startsWith('http') ? path : `https://image.tmdb.org/t/p/w500${path}`
+    const src = path.startsWith('http') ? path : `${tmdbImageBase.value.trim().replace(/\/$/, '')}/w500${path}`
     return { backgroundImage: `url(${src})` }
   }
   return movie.poster === 'demon' ? { backgroundImage: `url(${cinematicAnimeCollage})` } : undefined
@@ -1229,10 +1305,10 @@ function markLibraryWatched(movie) {
   if (armedWatched.value !== movie.id) {
     armedWatched.value = movie.id
     window.clearTimeout(watchConfirmTimer)
-    pushNotice(libraryNotices, { title: '再点一次确认', message: `将《${movie.title}》设为已观看`, tone: 'warning' }, 2400)
+    pushNotice(libraryNotices, { title: '再点一次确认', message: `将《${movie.title}》设为已观看`, tone: 'warning' }, NOTICE_DURATION)
     watchConfirmTimer = window.setTimeout(() => {
       armedWatched.value = null
-    }, 2400)
+    }, NOTICE_DURATION)
     return
   }
   armedWatched.value = null
@@ -1252,7 +1328,7 @@ function toggleLibraryWatchStatus(movie) {
     title: movie.watched ? '已设为已观看' : '已设为未观看',
     message: `《${movie.title}》的观看状态已更新`,
     tone: 'success',
-  }, 2400)
+  }, NOTICE_DURATION)
 }
 
 function toggleLibraryMovie(id) {
@@ -1575,15 +1651,10 @@ function resetTmdbSearch() {
 }
 
 function showRecordNotice(title, message, type = 'success') {
-  pushNotice(recordNotices, { title, message, type }, 3200)
+  pushNotice(recordNotices, { title, message, type }, RECORD_NOTICE_DURATION)
 }
 
-function viewTmdbResult(result) {
-  if (selectedTmdbResult.value?.id === result.id) {
-    selectedTmdbResult.value = null
-    return
-  }
-  selectedTmdbResult.value = result
+function resetAddForm() {
   addMediaType.value = '电影'
   addMediaMenuOpen.value = false
   addWatched.value = false
@@ -1592,6 +1663,73 @@ function viewTmdbResult(result) {
   addRating.value = 0
   addReview.value = ''
   overviewExpanded.value = false
+}
+
+function viewTmdbResult(result) {
+  if (selectedTmdbResult.value?.id === result.id) {
+    selectedTmdbResult.value = null
+    return
+  }
+  selectedTmdbResult.value = result
+  resetAddForm()
+}
+
+function openTmdbPreview(source) {
+  const tmdbId = Number(source?.tmdbId ?? source?.id)
+  if (!selectedMovie.value || !Number.isFinite(tmdbId) || tmdbId <= 0 || Number(selectedMovie.value.tmdbId) === tmdbId) return
+  detailPreviewStack.value.push({ movie: selectedMovie.value, entry: detailEntry.value })
+  const releaseDate = source.release_date || source.releaseDate || ''
+  const preview: Movie = {
+    id: `preview-tmdb-${tmdbId}-${Date.now()}`,
+    tmdbId,
+    title: source.title || source.original_title || '未命名影片',
+    originalTitle: source.original_title || source.originalTitle || source.title || '',
+    original_title: source.original_title || source.originalTitle || source.title || '',
+    year: source.year || releaseDate.slice(0, 4) || '待定',
+    releaseDate,
+    release_date: releaseDate,
+    watched: false,
+    poster: 'tmdb',
+    poster_path: source.poster_path || null,
+    backdrop_path: source.backdrop_path || null,
+    overview: source.overview || '',
+    tmdbRating: source.vote_average ?? source.tmdbRating ?? null,
+    tmdbVoteCount: source.vote_count ?? source.tmdbVoteCount ?? 0,
+    vote_average: source.vote_average ?? source.tmdbRating ?? null,
+    vote_count: source.vote_count ?? source.tmdbVoteCount ?? 0,
+    genre_ids: source.genre_ids || [],
+    original_language: source.original_language || '',
+    previewOnly: true,
+    detailState: 'idle',
+  }
+  selectedMovie.value = preview
+  detailEntry.value = 'preview'
+  currentPage.value = 'detail'
+  ensureTmdbDetails(preview, { compact: true })
+}
+
+function openPreviewSaveDialog() {
+  if (!previewAddResult.value) return
+  resetAddForm()
+  previewSaveOpen.value = true
+}
+
+function closePreviewSaveDialog() {
+  previewSaveOpen.value = false
+  addDatePickerOpen.value = false
+}
+
+function savePreviewMovie() {
+  if (!previewAddResult.value) return
+  const savedMovie = addTmdbMovie(previewAddResult.value)
+  if (!savedMovie) return
+  const firstEntry = detailPreviewStack.value[0]?.entry || 'home'
+  detailPreviewStack.value = []
+  previewSaveOpen.value = false
+  addDatePickerOpen.value = false
+  selectedMovie.value = savedMovie
+  detailEntry.value = firstEntry
+  ensureTmdbDetails(savedMovie)
 }
 
 function chooseAddMediaType(type) {
@@ -1609,9 +1747,10 @@ function handleAddWatchedChange() {
 }
 
 function addTmdbMovie(result) {
-  if (movieRecords.value.some((movie) => String(movie.id) === `tmdb-${result.id}`)) {
+  const existingMovie = movieRecords.value.find((movie) => String(movie.id) === `tmdb-${result.id}`)
+  if (existingMovie) {
     showRecordNotice('无需重复添加', '这部影片已经在你的记录中了。', 'warning')
-    return
+    return existingMovie
   }
   const movie = {
     id: `tmdb-${result.id}`,
@@ -1641,11 +1780,14 @@ function addTmdbMovie(result) {
   activeWatchStat.value = addWatched.value ? 'watched' : 'unwatched'
   selectedTmdbResult.value = null
   showRecordNotice('添加成功', `《${result.title || result.original_title}》已加入${addWatched.value ? '已观看' : '未观看'}。`)
+  return movie
 }
 
-async function ensureTmdbDetails(movie) {
+async function ensureTmdbDetails(movie, options: { compact?: boolean } = {}) {
+  const compact = options.compact ?? movie?.previewOnly === true
+  const expectedDetailVersion = compact ? 1 : 2
   const rawId = movie?.tmdbId ?? (String(movie?.id || '').startsWith('tmdb-') ? String(movie.id).slice(5) : null)
-  if (!rawId || movie.detailState === 'loading' || (movie.detailState === 'success' && movie.detailVersion >= 2)) return
+  if (!rawId || movie.detailState === 'loading' || (movie.detailState === 'success' && movie.detailVersion >= expectedDetailVersion)) return
   if (!tmdbToken.value.trim()) {
     movie.detailState = 'error'
     movie.detailError = '请先在设置中配置 TMDB API 密钥。'
@@ -1656,7 +1798,10 @@ async function ensureTmdbDetails(movie) {
   movie.detailError = ''
   try {
     const base = tmdbApiBase.value.trim().replace(/\/$/, '')
-    const request = tmdbRequest(`${base}/movie/${rawId}`, {
+    const request = tmdbRequest(`${base}/movie/${rawId}`, compact ? {
+      language: 'zh-CN',
+      append_to_response: 'credits',
+    } : {
       language: 'zh-CN',
       append_to_response: 'credits,videos,release_dates,images,keywords',
       include_video_language: 'zh,en,null',
@@ -1666,7 +1811,7 @@ async function ensureTmdbDetails(movie) {
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const detail = await response.json()
     let collectionDetail = null
-    if (detail.belongs_to_collection?.id) {
+    if (!compact && detail.belongs_to_collection?.id) {
       const collectionRequest = tmdbRequest(`${base}/collection/${detail.belongs_to_collection.id}`, { language: 'zh-CN' })
       const collectionResponse = await executeTmdbRequest(collectionRequest)
       if (collectionResponse.ok) collectionDetail = await collectionResponse.json()
@@ -1682,27 +1827,33 @@ async function ensureTmdbDetails(movie) {
       tmdbId: detail.id,
       title: detail.title || movie.title,
       originalTitle: detail.original_title || movie.originalTitle,
+      original_title: detail.original_title || movie.original_title || movie.originalTitle,
       overview: detail.overview || movie.overview,
       backdrop_path: detail.backdrop_path || movie.backdrop_path,
       poster_path: detail.poster_path || movie.poster_path,
       releaseDate: detail.release_date || movie.releaseDate,
+      release_date: detail.release_date || movie.release_date || movie.releaseDate,
       year: detail.release_date?.slice(0, 4) || movie.year,
       runtime: detail.runtime || null,
       genres: detail.genres || [],
       tagline: detail.tagline || '',
       tmdbRating: detail.vote_average ? Number(detail.vote_average.toFixed(1)) : movie.tmdbRating,
       tmdbVoteCount: detail.vote_count || movie.tmdbVoteCount || 0,
+      vote_average: detail.vote_average ?? movie.vote_average ?? movie.tmdbRating,
+      vote_count: detail.vote_count || movie.vote_count || movie.tmdbVoteCount || 0,
+      genre_ids: (detail.genres || []).map((genre) => genre.id).filter(Boolean),
+      original_language: detail.original_language || movie.original_language || '',
       popularity: detail.popularity || movie.popularity || 0,
       certification,
-      detailVersion: 2,
-      filmInfo: {
+      detailVersion: expectedDetailVersion,
+      filmInfo: compact ? null : {
         countries: (detail.production_countries || []).map((item) => item.name).filter(Boolean),
         languages: (detail.spoken_languages || []).map((item) => item.name || item.english_name).filter(Boolean),
         originalLanguage: detail.original_language || '',
         status: detail.status || '',
       },
-      productionCompanies: (detail.production_companies || []).slice(0, 6).map((company) => ({ id: company.id, name: company.name, logo_path: company.logo_path, country: company.origin_country })),
-      crew: (detail.credits?.crew || []).filter((person) => ['Director', 'Screenplay', 'Writer', 'Producer', 'Director of Photography', 'Original Music Composer', 'Editor'].includes(person.job)).filter((person, index, list) => list.findIndex((item) => item.id === person.id && item.job === person.job) === index).slice(0, 10).map((person) => ({ id: person.id, name: person.name, role: person.job, profile_path: person.profile_path })),
+      productionCompanies: compact ? [] : (detail.production_companies || []).slice(0, 6).map((company) => ({ id: company.id, name: company.name, logo_path: company.logo_path, country: company.origin_country })),
+      crew: compact ? [] : (detail.credits?.crew || []).filter((person) => ['Director', 'Screenplay', 'Writer', 'Producer', 'Director of Photography', 'Original Music Composer', 'Editor'].includes(person.job)).filter((person, index, list) => list.findIndex((item) => item.id === person.id && item.job === person.job) === index).slice(0, 10).map((person) => ({ id: person.id, name: person.name, role: person.job, profile_path: person.profile_path })),
       keywords: (detail.keywords?.keywords || detail.keywords?.results || []).slice(0, 14).map((keyword) => keyword.name),
       releases: (detail.release_dates?.results || []).filter((region) => region.release_dates?.length).slice(0, 8).map((region) => {
         const release = region.release_dates[0]
@@ -1716,10 +1867,10 @@ async function ensureTmdbDetails(movie) {
         overview: collectionDetail.overview,
         poster_path: collectionDetail.poster_path,
         backdrop_path: collectionDetail.backdrop_path,
-        parts: (collectionDetail.parts || []).sort((a, b) => String(a.release_date || '').localeCompare(String(b.release_date || ''))).map((part) => ({ id: part.id, title: part.title, year: part.release_date?.slice(0, 4) || '', poster_path: part.poster_path })),
+        parts: (collectionDetail.parts || []).sort((a, b) => String(a.release_date || '').localeCompare(String(b.release_date || ''))).map((part) => ({ id: part.id, title: part.title, original_title: part.original_title, year: part.release_date?.slice(0, 4) || '', release_date: part.release_date || '', poster_path: part.poster_path, backdrop_path: part.backdrop_path, overview: part.overview || '', vote_average: part.vote_average || 0, vote_count: part.vote_count || 0, genre_ids: part.genre_ids || [], original_language: part.original_language || '' })),
       } : null,
       director: director ? { id: director.id, name: director.name, role: '导演', profile_path: director.profile_path } : null,
-      cast: (detail.credits?.cast || []).slice(0, 8).map((person) => ({
+      cast: (detail.credits?.cast || []).slice(0, compact ? 4 : 8).map((person) => ({
         id: person.id,
         name: person.name,
         role: person.character || '演员',
@@ -1741,13 +1892,13 @@ async function ensureTmdbDetails(movie) {
 }
 
 function updateWatched(value) {
-  if (!selectedMovie.value) return
+  if (!selectedMovie.value || isPreviewDetail.value) return
   selectedMovie.value.watched = value
   if (value && !selectedMovie.value.watchedDate) selectedMovie.value.watchedDate = localDateKey()
 }
 
 function updateMovieRecord(record) {
-  if (!selectedMovie.value) return
+  if (!selectedMovie.value || isPreviewDetail.value) return
   Object.assign(selectedMovie.value, {
     personalRating: record.rating || null,
     rating: record.rating || null,
@@ -1771,7 +1922,7 @@ async function requestPersonDetails(person) {
       biography: detail.biography || '',
       birthday: detail.birthday || '',
       placeOfBirth: detail.place_of_birth || '',
-      knownFor: (detail.movie_credits?.cast || []).filter((work) => work.poster_path).sort((a, b) => (b.popularity || 0) - (a.popularity || 0)).slice(0, 8).map((work) => ({ id: work.id, title: work.title, year: work.release_date?.slice(0, 4) || '', poster: `${imageBase}/w185${work.poster_path}` })),
+      knownFor: (detail.movie_credits?.cast || []).filter((work) => work.poster_path).sort((a, b) => (b.popularity || 0) - (a.popularity || 0)).slice(0, 8).map((work) => ({ id: work.id, title: work.title, original_title: work.original_title, year: work.release_date?.slice(0, 4) || '', release_date: work.release_date || '', poster: `${imageBase}/w185${work.poster_path}`, poster_path: work.poster_path, backdrop_path: work.backdrop_path, overview: work.overview || '', vote_average: work.vote_average || 0, vote_count: work.vote_count || 0, genre_ids: work.genre_ids || [], original_language: work.original_language || '' })),
       detailState: 'success',
     })
   } catch (error) {
@@ -1780,6 +1931,7 @@ async function requestPersonDetails(person) {
 }
 
 function navigateDetail(direction) {
+  if (isPreviewDetail.value) return
   const currentIndex = movieRecords.value.findIndex((movie) => movie.id === selectedMovie.value?.id)
   if (currentIndex < 0 || movieRecords.value.length < 2) return
   const nextIndex = (currentIndex + direction + movieRecords.value.length) % movieRecords.value.length
@@ -1823,15 +1975,15 @@ function navigateDetail(direction) {
       @pointermove.capture="edgeBackPointerMove"
       @pointerup.capture="edgeBackPointerUp"
       @pointercancel.capture="cancelEdgeBackGesture"
-      @click.capture="animateSettingsChoice"
+      @click.capture="handlePhoneClick"
     >
       <div class="ambient-orb ambient-orb--one" aria-hidden="true"></div>
       <div class="ambient-orb ambient-orb--two" aria-hidden="true"></div>
 
-      <NoticeStack v-if="addOpen && (currentPage === 'home' || currentPage === 'library')" :notices="recordNotices" placement="record" :motion="motionIntensity" :duration="3200" closable @dismiss="dismissNotice(recordNotices, $event)" />
-      <NoticeStack v-else-if="currentPage === 'home'" :notices="homeNotices" placement="home" :motion="motionIntensity" :duration="2400" @dismiss="dismissNotice(homeNotices, $event)" />
-      <NoticeStack v-else-if="currentPage === 'library'" :notices="libraryNotices" placement="library" :motion="motionIntensity" :duration="2400" @dismiss="dismissNotice(libraryNotices, $event)" />
-      <NoticeStack v-else-if="currentPage === 'settings'" :notices="settingsNotices" placement="settings" :motion="motionIntensity" :duration="2300" @dismiss="dismissNotice(settingsNotices, $event)" />
+      <NoticeStack v-if="addOpen && (currentPage === 'home' || currentPage === 'library')" :notices="recordNotices" placement="record" :motion="motionIntensity" :duration="RECORD_NOTICE_DURATION" closable @dismiss="dismissNotice(recordNotices, $event)" />
+      <NoticeStack v-else-if="currentPage === 'home'" :notices="homeNotices" placement="home" :motion="motionIntensity" :duration="NOTICE_DURATION" @dismiss="dismissNotice(homeNotices, $event)" />
+      <NoticeStack v-else-if="currentPage === 'library'" :notices="libraryNotices" placement="library" :motion="motionIntensity" :duration="NOTICE_DURATION" @dismiss="dismissNotice(libraryNotices, $event)" />
+      <NoticeStack v-else-if="currentPage === 'settings'" :notices="settingsNotices" placement="settings" :motion="motionIntensity" :duration="NOTICE_DURATION" @dismiss="dismissNotice(settingsNotices, $event)" />
 
       <Transition :name="surfaceTransitionName" :duration="surfaceTransitionDuration">
         <section v-if="surfacePage === 'home'" key="home" class="surface-view home-surface">
@@ -1890,8 +2042,8 @@ function navigateDetail(direction) {
           </div>
 
           <Transition :name="homeSwapTransition" mode="out-in" class="surface-piece" style="--piece-order: 2">
-            <MovieCarousel v-if="viewMode === 'cards'" :key="`cards-${activeWatchStat}-${statPeriod}-${selectedYear}`" :movies="displayedMovies" :database-empty="movieRecordsReady && !movieRecords.length" :active="currentPage === 'home'" :motion-intensity="motionIntensity" @mark-watched="markWatched" @open-detail="openDetail" />
-            <MovieList v-else :key="`list-${activeWatchStat}-${statPeriod}-${selectedYear}`" :movies="displayedMovies" :database-empty="movieRecordsReady && !movieRecords.length" @open-detail="openHomeListDetail" @watch-warning="showHomeWatchNotice" @mark-watched="markWatched" />
+            <MovieCarousel v-if="viewMode === 'cards'" :key="`cards-${activeWatchStat}-${statPeriod}-${selectedYear}`" :movies="displayedMovies" :database-empty="movieRecordsReady && !movieRecords.length" :active="currentPage === 'home'" :motion-intensity="motionIntensity" :image-base="tmdbImageBase" @mark-watched="markWatched" @open-detail="openDetail" />
+            <MovieList v-else :key="`list-${activeWatchStat}-${statPeriod}-${selectedYear}`" :movies="displayedMovies" :database-empty="movieRecordsReady && !movieRecords.length" :image-base="tmdbImageBase" @open-detail="openHomeListDetail" @watch-warning="showHomeWatchNotice" @mark-watched="markWatched" />
           </Transition>
         </section>
         </section>
@@ -1912,7 +2064,7 @@ function navigateDetail(direction) {
                   split-level-class-name="rotating-title__clip"
                 />
                 <span class="library-title-separator">·</span>
-                <span class="library-title-status">
+                <span class="library-title-status" :class="`is-${libraryWatchFilter}`">
                   <RotatingText
                     :texts="libraryStatusFrames"
                     :auto="false"
@@ -1965,16 +2117,16 @@ function navigateDetail(direction) {
               <button type="button" class="date-dock__reset" aria-label="显示全部日期" @click.stop="resetLibraryDate">全部</button>
             </aside>
             <div class="library-status-stack" role="group" aria-label="观看状态筛选">
-              <button class="status-cycle-button" :class="libraryWatchFilter === 'favourite' ? 'is-inactive' : `is-${activeLibraryWatchState.value}`" :aria-label="`当前${activeLibraryWatchState.label}，点击切换观看状态`" @click="cycleLibraryWatchFilter">
-                <Transition name="status-cycle" mode="out-in">
-                  <span :key="activeLibraryWatchState.value" class="status-cycle-content"><small>{{ activeLibraryWatchState.label }}</small><strong>{{ activeLibraryWatchState.count }}</strong></span>
-                </Transition>
-                <ChevronDown :size="12" />
+              <button v-for="state in libraryWatchStates" :key="state.value" class="status-cycle-button status-filter-button" :class="[`is-${state.value}`, { selected: libraryWatchFilter === state.value }]" :aria-label="`只看${state.label}`" :aria-pressed="libraryWatchFilter === state.value" @click="setLibraryWatchFilter(state.value)">
+                <span class="status-cycle-content"><small>{{ state.label }}</small><strong>{{ state.count }}</strong></span>
               </button>
-              <button class="status-cycle-button library-favourite-button" :class="{ selected: libraryWatchFilter === 'favourite' }" aria-label="只看我的喜欢" @click="libraryWatchFilter = libraryWatchFilter === 'favourite' ? 'all' : 'favourite'">
+              <button class="status-cycle-button library-favourite-button" :class="{ selected: libraryWatchFilter === 'favourite' }" aria-label="只看我的喜欢" :aria-pressed="libraryWatchFilter === 'favourite'" @click="setLibraryWatchFilter('favourite')">
                 <span class="status-cycle-content"><small>喜欢</small><strong>{{ favouriteCount }}</strong></span>
                 <Star :size="12" :fill="libraryWatchFilter === 'favourite' ? 'currentColor' : 'none'" />
               </button>
+              <Transition name="status-cycle">
+                <button v-if="libraryWatchResetVisible" class="library-status-reset" aria-label="重置观看状态筛选" @click="resetLibraryWatchFilter"><RotateCcw :size="13" /><small>重置</small></button>
+              </Transition>
             </div>
             <div class="library-list" aria-live="polite">
             <article v-for="(movie, index) in libraryMovies" :key="movie.id" class="library-row" :class="{ expanded: expandedLibraryId === movie.id }" :style="{ '--row-order': index, '--row-tint': movieTone(movie) }">
@@ -2102,7 +2254,26 @@ function navigateDetail(direction) {
 
       <div v-if="posterFlight" class="poster-flight" :class="`poster-flight--${posterFlight.movie.poster}`" :style="{ '--flight-left': `${posterFlight.left}px`, '--flight-top': `${posterFlight.top}px`, '--flight-width': `${posterFlight.width}px`, '--flight-height': `${posterFlight.height}px`, ...libraryPosterStyle(posterFlight.movie) }" aria-hidden="true"></div>
 
-      <MovieDetail ref="movieDetail" v-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" :entry-mode="detailEntry" :motion-intensity="motionIntensity" :layout-order="detailLayout.map((item) => item.id)" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" @update-record="updateMovieRecord" @request-person="requestPersonDetails" />
+      <MovieDetail ref="movieDetail" v-if="currentPage === 'detail' && selectedMovie" :movie="selectedMovie" :entry-mode="detailEntry" :motion-intensity="motionIntensity" :image-base="tmdbImageBase" :layout-order="detailLayout.map((item) => item.id)" :preview-mode="isPreviewDetail" @back="closeDetail" @navigate="navigateDetail" @update-watched="updateWatched" @update-record="updateMovieRecord" @request-person="requestPersonDetails" @preview-movie="openTmdbPreview" @request-save="openPreviewSaveDialog" />
+
+      <Transition name="tmdb-modal">
+        <div v-if="previewSaveOpen && previewAddResult" class="tmdb-detail-backdrop preview-save-backdrop" @click.self="closePreviewSaveDialog">
+          <section class="tmdb-detail-modal" role="dialog" aria-modal="true" :aria-label="`${previewAddResult.title} 添加详情`">
+            <header class="tmdb-modal-header"><div class="tmdb-result-poster" :style="tmdbPoster(previewAddResult) ? { backgroundImage: `url(${tmdbPoster(previewAddResult)})` } : {}"></div><div><small>{{ previewAddResult.release_date?.slice(0, 4) || '待定' }} · TMDB {{ previewAddResult.vote_average?.toFixed(1) || '暂无评分' }}</small><h3>{{ previewAddResult.title }}</h3><p>{{ previewAddResult.original_title || '暂无原名' }}</p></div><button aria-label="关闭添加" @click="closePreviewSaveDialog"><X :size="17" /></button></header>
+            <div class="tmdb-modal-scroll">
+              <section class="tmdb-info-card" :class="{ expanded: overviewExpanded }"><div class="tmdb-card-title"><span>影片介绍</span><small>{{ previewAddResult.release_date?.slice(0, 4) || '年份待定' }}</small></div><p>{{ previewAddResult.overview || '暂无剧情简介。' }}</p><button class="tmdb-overview-toggle" :aria-expanded="overviewExpanded" @click="overviewExpanded = !overviewExpanded">{{ overviewExpanded ? '收起' : '展开' }}<ChevronDown :size="12" /></button></section>
+              <section class="tmdb-add-card">
+                <div class="tmdb-card-title"><span>添加设置</span><small>完善你的记录</small></div>
+                <div class="tmdb-field"><span>类型</span><div class="tmdb-media-select"><button type="button" class="tmdb-media-select__trigger" :class="{ open: addMediaMenuOpen }" aria-haspopup="listbox" :aria-expanded="addMediaMenuOpen" @click="addMediaMenuOpen = !addMediaMenuOpen"><span>{{ addMediaType }}</span><ChevronDown :size="14" /></button><Transition name="media-menu"><div v-if="addMediaMenuOpen" class="tmdb-media-select__menu" role="listbox" aria-label="选择内容类型"><button v-for="type in libraryMediaTypes" :key="type" type="button" role="option" :aria-selected="addMediaType === type" :class="{ selected: addMediaType === type }" @click="chooseAddMediaType(type)"><span>{{ type }}</span><Check v-if="addMediaType === type" :size="13" /></button></div></Transition></div></div>
+                <div class="tmdb-watch-row" :class="{ watched: addWatched }"><label class="tmdb-watch-toggle"><span><strong>是否已观看</strong><small>{{ addWatched ? '记录评分与观后感' : '加入待看清单' }}</small></span><input v-model="addWatched" type="checkbox" @change="handleAddWatchedChange" /><i aria-hidden="true"></i></label><Transition name="watch-date"><div v-if="addWatched" class="tmdb-watch-date-wrap"><button type="button" class="tmdb-watch-date" :class="{ open: addDatePickerOpen }" aria-haspopup="dialog" :aria-expanded="addDatePickerOpen" @click="toggleWatchedDatePicker"><span><small>观看日期</small><strong>{{ addWatchedDateLabel }}</strong></span><ChevronDown :size="13" /></button></div></Transition></div>
+                <Transition name="watched-fields"><div v-if="addWatched" class="tmdb-watched-fields"><div class="tmdb-rating"><span>个人评分</span><div><button v-for="score in 5" :key="score" type="button" :class="{ selected: addRating >= score * 2 }" :aria-label="`${score * 2} 分`" @click="addRating = score * 2"><Star :size="18" /></button><strong>{{ addRating || '—' }}<small>/ 10</small></strong></div></div><label class="tmdb-review"><span>个人评价</span><textarea v-model="addReview" rows="3" placeholder="写下看完后的感受……"></textarea></label></div></Transition>
+                <button class="tmdb-confirm-add" @click="savePreviewMovie"><Check :size="15" />确认添加</button>
+              </section>
+            </div>
+            <DatePickerDialog v-model="addWatchedDate" v-model:open="addDatePickerOpen" title="选择观看日期" />
+          </section>
+        </div>
+      </Transition>
 
       <Transition name="settings-shell">
         <section v-if="currentPage === 'settings'" class="personal-settings" @input.capture="handleSettingsAutoInput">
@@ -2112,7 +2283,7 @@ function navigateDetail(direction) {
                 <button :aria-label="settingsSection === 'hub' ? '返回首页' : '返回设置'" @click="backFromSettings"><ChevronLeft :size="22" /></button>
                 <div>
                   <h1>{{ settingsSection === 'hub' ? '设置' : settingsSection === 'profile' ? '个人信息' : settingsSection === 'home' ? '首页编辑' : settingsSection === 'library' ? '列表设置' : settingsSection === 'categories' ? '分类设置' : settingsSection === 'detail-layout' ? '电影详情布局' : settingsSection === 'animation' ? '动画强度设置' : settingsSection === 'database' ? '数据库设置' : 'TMDB 设置' }}</h1>
-                  <p>{{ settingsSection === 'hub' ? '把常用设置收进清晰的分类里。' : settingsSection === 'profile' ? '头像和名称会显示在首页。' : settingsSection === 'home' ? '控制首页的统计与展示数量。' : settingsSection === 'library' ? '统一管理标签、排序与工具位置。' : settingsSection === 'categories' ? '管理两层分类、自定义内容与显示顺序。' : settingsSection === 'detail-layout' ? '调整详情模块的优先展示顺序。' : settingsSection === 'animation' ? '统一控制所有页面的动态幅度与启动动画。' : settingsSection === 'database' ? '查看当前设备的本地数据库状态。' : '配置数据接口与国内网络访问。' }}</p>
+                  <p>{{ settingsSection === 'hub' ? '把常用设置收进清晰的分类里。' : settingsSection === 'profile' ? '头像和名称会显示在首页。' : settingsSection === 'home' ? '控制首页优先状态、统计单位与展示数量。' : settingsSection === 'library' ? '统一管理标签、排序与工具位置。' : settingsSection === 'categories' ? '管理两层分类、自定义内容与显示顺序。' : settingsSection === 'detail-layout' ? '调整详情模块的优先展示顺序。' : settingsSection === 'animation' ? '统一控制所有页面的动态幅度与启动动画。' : settingsSection === 'database' ? '查看当前设备的本地数据库状态。' : '配置 API 密钥与代理连接。' }}</p>
                 </div>
               </header>
 
@@ -2132,13 +2303,13 @@ function navigateDetail(direction) {
                     <span><strong>模式选择</strong><small>背景与手机显示模式同步</small></span>
                     <Transition name="theme-label" mode="out-in"><b :key="themeMode">{{ themeModeLabel }}</b></Transition>
                   </button>
-                  <button @click="openSettingsSection('home')"><i class="settings-icon settings-icon--home"><House :size="18" /></i><span><strong>首页编辑</strong><small>统计单位、展示数量</small></span><ChevronRight :size="18" /></button>
+                  <button @click="openSettingsSection('home')"><i class="settings-icon settings-icon--home"><House :size="18" /></i><span><strong>首页编辑</strong><small>优先状态、统计单位与展示数量</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('library')"><i class="settings-icon settings-icon--library"><SlidersHorizontal :size="18" /></i><span><strong>列表设置</strong><small>标签、排序与工具位置</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('categories')"><i class="settings-icon settings-icon--categories"><FolderTree :size="18" /></i><span><strong>分类设置</strong><small>两层分类、自定义与拖动排序</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('detail-layout')"><i class="settings-icon settings-icon--detail"><LayoutPanelTop :size="18" /></i><span><strong>电影详情布局</strong><small>{{ detailLayout.length }} 个显示 · {{ hiddenDetailLayout.length }} 个隐藏</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('animation')"><i class="settings-icon settings-icon--animation"><Play :size="18" /></i><span><strong>动画强度设置</strong><small>当前强度：{{ motionIntensity === 'high' ? '高' : motionIntensity === 'medium' ? '中' : '低' }}</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('database')"><i class="settings-icon settings-icon--database"><HardDrive :size="18" /></i><span><strong>数据库设置</strong><small>本地引擎、连接状态与数据概况</small></span><ChevronRight :size="18" /></button>
-                  <button @click="openSettingsSection('tmdb')"><i class="settings-icon settings-icon--tmdb"><Database :size="18" /></i><span><strong>TMDB 设置</strong><small>API、图片与国内网络</small></span><ChevronRight :size="18" /></button>
+                  <button @click="openSettingsSection('tmdb')"><i class="settings-icon settings-icon--tmdb"><Database :size="18" /></i><span><strong>TMDB 设置</strong><small>API 密钥与代理连接</small></span><ChevronRight :size="18" /></button>
                 </div>
                 <p class="settings-footnote settings-piece" style="--settings-order: 3">所有设置只保存在当前浏览器中。</p>
               </template>
@@ -2162,15 +2333,16 @@ function navigateDetail(direction) {
                     <footer><button type="button" @click="activeProfileColor = null">取消</button><button type="button" @click="confirmProfileColor"><Check :size="14" />确认颜色</button></footer>
                   </section>
                 </Transition>
-                <div class="settings-group settings-piece" style="--settings-order: 2"><label for="username">名称</label><input id="username" v-model.trim="username" maxlength="10" placeholder="输入你的名字" /><small>首页将显示“{{ username || '用户' }}的观影记录”。</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 2"><label for="username">名称</label><input id="username" v-model.trim="username" data-auto-save maxlength="10" placeholder="输入你的名字" /><small>首页将显示“{{ username || '用户' }}的观影记录”，更改会自动保存。</small></div>
                 <div class="settings-group settings-piece" style="--settings-order: 3"><label>本地头像</label><label class="avatar-upload"><i><Upload :size="18" /></i><span><strong>选择本地图片</strong><em>支持 JPG、PNG，自动居中裁剪</em></span><b>浏览</b><input type="file" accept="image/*" aria-label="选择本地头像图片" @change="handleAvatarUpload" /></label><small class="avatar-upload-status">{{ avatarUploadMessage || '图片会压缩为 256 × 256，并只保存在当前浏览器。' }}</small></div>
-                <div class="settings-group settings-piece" style="--settings-order: 4"><label for="avatar-url">或使用图片地址</label><input id="avatar-url" v-model.trim="avatarUrlInput" inputmode="url" :placeholder="avatarUrl.startsWith('data:') ? '正在使用本地头像，输入网址可替换' : 'https://example.com/avatar.jpg'" /><small>{{ avatarUrl.startsWith('data:') ? '当前使用本地头像，图片数据已隐藏。' : '留空时显示名称首字。' }}</small></div>
-                <button class="profile-save-button settings-piece" :class="{ saved: profileSaveState === 'saved' }" style="--settings-order: 5" @click="saveProfileSettings"><Check :size="18" /><span><strong>{{ profileSaveState === 'saved' ? '个人信息已保存' : '保存个人信息' }}</strong><small>{{ profileSaveState === 'saved' ? '颜色、头像与名称已同步' : '保存颜色、头像和名称设置' }}</small></span></button>
+                <div class="settings-group settings-piece" style="--settings-order: 4"><label for="avatar-url">或使用图片地址</label><input id="avatar-url" v-model.trim="avatarUrlInput" data-auto-save inputmode="url" :placeholder="avatarUrl.startsWith('data:') ? '正在使用本地头像，输入网址可替换' : 'https://example.com/avatar.jpg'" /><small>{{ avatarUrl.startsWith('data:') ? '当前使用本地头像，图片数据已隐藏。' : '留空时显示名称首字，更改会自动保存。' }}</small></div>
               </template>
 
               <template v-else-if="settingsSection === 'home'">
-                <div class="settings-group settings-piece" style="--settings-order: 1"><label>默认统计单位</label><div class="period-options" role="group" aria-label="时间单位"><button v-for="option in [{ value: 'year', label: '年' }, { value: 'month', label: '月' }, { value: 'day', label: '日' }]" :key="option.value" :class="{ selected: statPeriod === option.value }" @click="statPeriod = option.value">{{ option.label }}</button></div></div>
-                <div class="settings-group settings-piece" style="--settings-order: 2"><label>首页最多展示</label><div class="home-limit-control" :class="{ editing: homeCustomLimitOpen }"><div class="period-options home-limit-options" role="group" aria-label="首页电影展示数量"><button v-for="limit in [5, 10]" :key="limit" :class="{ selected: homeDisplayLimit === limit && !homeCustomLimitOpen }" @click="homeDisplayLimit = limit; homeCustomLimitOpen = false">{{ limit }} 部</button><button v-if="!homeCustomLimitOpen" :class="{ selected: ![5, 10].includes(homeDisplayLimit) }" @click="openHomeCustomLimit">自定义</button></div><Transition name="home-custom-limit"><div v-if="homeCustomLimitOpen" class="home-custom-limit-editor"><label><input v-model="homeCustomLimitInput" type="number" inputmode="numeric" min="1" max="99" aria-label="自定义首页展示数量" /><span>部</span></label><div><button type="button" @click="cancelHomeCustomLimit">取消</button><button type="button" @click="saveHomeCustomLimit"><Check :size="13" />保存</button></div></div></Transition></div><small>卡片和列表共同使用这个展示数量；默认 10 部，也可快速选择 5 部。</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 1"><label>首页优先显示</label><div class="period-options home-watch-priority-options" role="group" aria-label="首页优先显示状态"><button :class="{ selected: homeWatchPriority === 'unwatched' }" @click="setHomeWatchPriority('unwatched')">未观看</button><button :class="{ selected: homeWatchPriority === 'watched' }" @click="setHomeWatchPriority('watched')">已观看</button></div><small>决定每次打开 App 时首页先显示哪个观看状态。</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 2"><label>默认统计单位</label><div class="period-options" role="group" aria-label="时间单位"><button v-for="option in [{ value: 'year', label: '年' }, { value: 'month', label: '月' }, { value: 'day', label: '日' }]" :key="option.value" :class="{ selected: statPeriod === option.value }" @click="statPeriod = option.value">{{ option.label }}</button></div></div>
+                <div class="settings-group settings-piece" style="--settings-order: 3"><label>首页最多展示</label><div class="home-limit-control" :class="{ editing: homeCustomLimitOpen }"><div class="period-options home-limit-options" role="group" aria-label="首页电影展示数量"><button v-for="limit in [5, 10]" :key="limit" :class="{ selected: homeDisplayLimit === limit && !homeCustomLimitOpen }" @click="homeDisplayLimit = limit; homeCustomLimitOpen = false">{{ limit }} 部</button><button v-if="!homeCustomLimitOpen" :class="{ selected: ![5, 10].includes(homeDisplayLimit) }" @click="openHomeCustomLimit">自定义</button></div><Transition name="home-custom-limit"><div v-if="homeCustomLimitOpen" class="home-custom-limit-editor"><label><input v-model="homeCustomLimitInput" type="number" inputmode="numeric" min="1" max="99" aria-label="自定义首页展示数量" /><span>部</span></label><div><button type="button" @click="cancelHomeCustomLimit">取消</button><button type="button" @click="saveHomeCustomLimit"><Check :size="13" />保存</button></div></div></Transition></div><small>卡片和列表共同使用这个展示数量；默认 10 部，也可快速选择 5 部。</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 4"><label>默认首页视图</label><div class="period-options home-view-options" role="group" aria-label="默认首页视图"><button :class="{ selected: viewMode === 'cards' }" @click="viewMode = 'cards'"><img :src="pixelCards" alt="" />卡片</button><button :class="{ selected: viewMode === 'list' }" @click="viewMode = 'list'"><img :src="pixelRows" alt="" />列表</button></div><small>选择后立即应用，下次打开 App 也会保持。</small></div>
               </template>
 
               <template v-else-if="settingsSection === 'library'">
@@ -2213,7 +2385,7 @@ function navigateDetail(direction) {
                       <span><strong>低</strong><small>极轻位移与快速淡入</small></span>
                     </button>
                   </div>
-                  <p>App 默认使用中强度以保证衔接顺滑；设置会立即应用并保存在当前设备。</p>
+                  <p>App 默认使用高强度；设置会立即应用并保存在当前设备。</p>
                 </section>
 
                 <section class="startup-animation-settings settings-piece" style="--settings-order: 2">
@@ -2242,17 +2414,15 @@ function navigateDetail(direction) {
               </template>
 
               <template v-else>
-                <div class="network-options network-options--official settings-piece" style="--settings-order: 1" role="status"><button class="selected"><strong>TMDB 官方直连</strong><span>中国大陆使用时请先开启代理</span></button></div>
-                <button class="tmdb-refresh-endpoints settings-piece" :class="{ refreshed: tmdbEndpointRefreshState === 'refreshed' }" style="--settings-order: 2" @click="refreshTmdbEndpoints"><RefreshCw :size="16" /><span><strong>{{ tmdbEndpointRefreshState === 'refreshed' ? '官方地址已恢复' : '恢复官方地址' }}</strong><small>恢复 TMDB 官方 API 与图片地址</small></span></button>
-                <div class="tmdb-notice settings-piece" style="--settings-order: 3">
+                <div class="tmdb-notice settings-piece" style="--settings-order: 1">
                   <Database :size="20" />
-                  <div><strong>直接访问 TMDB 官方域名</strong><p>中国大陆网络通常不能直接连接 TMDB；搜索或加载图片前，请先在手机或电脑上开启系统代理。</p></div>
+                  <div><strong>TMDB 官方服务</strong><p>应用固定连接 TMDB 官方 API 与图片服务。</p></div>
                 </div>
-                <div class="tmdb-native-warning settings-piece" style="--settings-order: 3"><strong>本应用不内置代理</strong><span>请先在手机或电脑系统中开启可访问 TMDB 的代理，再返回这里测试连接；无需填写 VPS 或反代地址。</span></div>
-                <div class="settings-group settings-piece" style="--settings-order: 3"><label for="tmdb-token">API 密钥</label><input id="tmdb-token" v-model.trim="tmdbToken" data-auto-save type="password" autocomplete="off" placeholder="输入 TMDB v3 API 密钥" /><small>支持 v3 API 密钥；旧的 Read Access Token 也会自动识别。密钥只保存在当前浏览器。</small></div>
-                <div class="settings-group settings-piece" style="--settings-order: 4"><label for="tmdb-api">API 地址</label><input id="tmdb-api" v-model.trim="tmdbApiBase" inputmode="url" readonly /><small>TMDB 官方：https://api.themoviedb.org/3</small></div>
-                <div class="settings-group settings-piece" style="--settings-order: 5"><label for="tmdb-image">图片地址</label><input id="tmdb-image" v-model.trim="tmdbImageBase" inputmode="url" readonly /><small>TMDB 官方：https://image.tmdb.org/t/p</small></div>
-                <button class="tmdb-test settings-piece" style="--settings-order: 7" :disabled="tmdbTestState === 'testing'" @click="testTmdbConnection">{{ tmdbTestState === 'testing' ? '正在测试…' : '测试连接' }}</button>
+                <div class="tmdb-native-warning settings-piece" style="--settings-order: 2"><strong>需要开启代理</strong><span>请先在手机或电脑开启可访问 TMDB 的代理，再测试连接。</span></div>
+                <div class="settings-group settings-piece" style="--settings-order: 3"><label for="tmdb-token">API 密钥</label><input id="tmdb-token" v-model.trim="tmdbToken" data-auto-save type="password" autocomplete="off" placeholder="输入 TMDB v3 API 密钥" /><small>支持 v3 API 密钥或 v4 Read Access Token，密钥只保存在当前设备。</small><a class="tmdb-api-key-link" href="https://www.themoviedb.org/settings/api" target="_blank" rel="noreferrer">点击前往获取 API 密钥 <ArrowUpRight :size="14" /></a></div>
+                <div class="settings-group settings-piece" style="--settings-order: 4"><label for="tmdb-api">API 地址</label><input id="tmdb-api" v-model="tmdbApiBase" readonly /><small>固定使用 TMDB 官方 API。</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 5"><label for="tmdb-image">图片地址</label><input id="tmdb-image" v-model="tmdbImageBase" readonly /><small>固定使用 TMDB 官方图片服务。</small></div>
+                <button class="tmdb-test settings-piece" style="--settings-order: 6" :disabled="tmdbTestState === 'testing'" @click="testTmdbConnection">{{ tmdbTestState === 'testing' ? '正在测试…' : '测试连接' }}</button>
                 <p v-if="tmdbTestMessage" class="tmdb-result" :class="`is-${tmdbTestState}`">{{ tmdbTestMessage }}</p>
               </template>
             </div>
