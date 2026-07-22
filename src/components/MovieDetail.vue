@@ -112,7 +112,7 @@ const voteLabel = computed(() => {
   if (count >= 1000) return `${(count / 1000).toFixed(1)}k 人评分`
   return `${count} 人评分`
 })
-const people = computed(() => [props.movie.director, ...(props.movie.cast || [])].filter(Boolean).slice(0, 8))
+const people = computed(() => [props.movie.director, ...(props.movie.cast || [])].filter(Boolean).slice(0, props.previewMode ? 4 : 8))
 const canExpandOverview = computed(() => String(props.movie.overview || '').length > 48)
 const trailerUrl = computed(() => {
   const directUrl = props.movie.trailerUrl || props.movie.videoUrl || props.movie.trailer?.url
@@ -145,6 +145,8 @@ const moduleOrder = (id) => {
   return index < 0 ? 50 : index + 1
 }
 const isModuleVisible = (id) => props.layoutOrder.includes(id)
+const compactPreviewModules = new Set(['score', 'facts', 'synopsis', 'people'])
+const isModuleShown = (id) => isModuleVisible(id) && (!props.previewMode || compactPreviewModules.has(id))
 
 function setScrollProgress(value, immediate = false) {
   pendingScrollProgress = value
@@ -476,33 +478,33 @@ onBeforeUnmount(() => {
       </section>
 
       <div :key="`content-${movie.id}`" class="detail-content">
-        <p v-if="movie.tagline && isModuleVisible('tagline')" class="detail-tagline detail-module" :style="{ order: moduleOrder('tagline') }">“{{ movie.tagline }}”</p>
+        <p v-if="!previewMode && movie.tagline && isModuleVisible('tagline')" class="detail-tagline detail-module" :style="{ order: moduleOrder('tagline') }">“{{ movie.tagline }}”</p>
 
         <div v-if="movie.detailState === 'loading'" class="detail-load-state">
-          <LoaderCircle :size="15" /><span>正在补全 TMDB 影片资料…</span>
+          <LoaderCircle :size="15" /><span>{{ previewMode ? '正在加载轻量预览…' : '正在补全 TMDB 影片资料…' }}</span>
         </div>
         <div v-else-if="movie.detailState === 'error'" class="detail-load-state is-error">
           <span>{{ movie.detailError }}</span>
         </div>
 
-        <section v-if="isModuleVisible('score') || isModuleVisible('trailer')" class="score-actions detail-module reveal-section" :class="{ 'is-single': !isModuleVisible('score') || !isModuleVisible('trailer') }" :style="{ order: Math.min(moduleOrder('score'), moduleOrder('trailer')) }" aria-label="评分与预告片">
-          <div v-if="isModuleVisible('score')" class="tmdb-score-card">
+        <section v-if="isModuleShown('score') || isModuleShown('trailer')" class="score-actions detail-module reveal-section" :class="{ 'is-single': !isModuleShown('score') || !isModuleShown('trailer') }" :style="{ order: Math.min(moduleOrder('score'), moduleOrder('trailer')) }" aria-label="评分与预告片">
+          <div v-if="isModuleShown('score')" class="tmdb-score-card">
             <span>TMDB 评分</span>
             <div><strong>{{ tmdbScore ?? '—' }}</strong><small>/10</small></div>
             <p><Star :size="13" fill="currentColor" />{{ voteLabel }}</p>
           </div>
-          <button v-if="isModuleVisible('trailer')" class="trailer-card" :disabled="!trailerUrl" @click="openTrailer">
+          <button v-if="isModuleShown('trailer')" class="trailer-card" :disabled="!trailerUrl" @click="openTrailer">
             <i><Play :size="17" fill="currentColor" /></i>
             <span><strong>{{ trailerUrl ? '预告片' : '预告片链接' }}</strong><small>{{ trailerUrl ? '播放网络视频' : '暂未提供 URL' }}</small></span>
           </button>
         </section>
 
-        <section v-if="isModuleVisible('facts')" class="quick-facts detail-module reveal-section" :style="{ order: moduleOrder('facts') }" aria-label="影片基础资料">
+        <section v-if="isModuleShown('facts')" class="quick-facts detail-module reveal-section" :style="{ order: moduleOrder('facts') }" aria-label="影片基础资料">
           <span><Clock3 :size="14" />{{ runtimeLabel }}</span>
           <span><Tag :size="14" />{{ movie.certification || genres[0] || '分级待定' }}</span>
         </section>
 
-        <section v-if="isModuleVisible('synopsis')" class="detail-panel synopsis-panel detail-module reveal-section" :style="{ order: moduleOrder('synopsis') }">
+        <section v-if="isModuleShown('synopsis')" class="detail-panel synopsis-panel detail-module reveal-section" :style="{ order: moduleOrder('synopsis') }">
           <h2>剧情简介</h2>
           <p :class="{ expanded: overviewExpanded }">{{ movie.overview || '暂无剧情简介。TMDB 详情加载完成后会在这里展示影片介绍。' }}</p>
           <button v-if="canExpandOverview" class="text-action" @click="overviewExpanded = !overviewExpanded">
@@ -510,7 +512,7 @@ onBeforeUnmount(() => {
           </button>
         </section>
 
-        <section v-if="people.length && isModuleVisible('people')" class="detail-panel people-panel detail-module reveal-section" :style="{ order: moduleOrder('people') }">
+        <section v-if="people.length && isModuleShown('people')" class="detail-panel people-panel detail-module reveal-section" :style="{ order: moduleOrder('people') }">
           <div class="section-heading"><h2>主要演职员</h2><small>导演与主演</small></div>
           <div class="people-rail">
             <article v-for="person in people" :key="`${person.id}-${person.role}`" class="person-card">
@@ -531,7 +533,7 @@ onBeforeUnmount(() => {
           <blockquote>“{{ movie.feeling || (movie.watched ? '还没有写下短评。' : '加入待看清单，留给下一次观影。') }}”</blockquote>
         </section>
 
-        <section v-if="isModuleVisible('info') && (movie.filmInfo || movie.keywords?.length)" class="detail-panel extra-panel detail-module reveal-section" :style="{ order: moduleOrder('info') }">
+        <section v-if="isModuleShown('info') && (movie.filmInfo || movie.keywords?.length)" class="detail-panel extra-panel detail-module reveal-section" :style="{ order: moduleOrder('info') }">
           <div class="section-heading"><h2>影片资料</h2><small>TMDB FILE</small></div>
           <div class="film-info-grid">
             <div><span>原始语言</span><strong>{{ movie.filmInfo?.originalLanguage?.toUpperCase() || '—' }}</strong></div>
@@ -545,7 +547,7 @@ onBeforeUnmount(() => {
           </button>
         </section>
 
-        <section v-if="isModuleVisible('production') && (movie.crew?.length || movie.productionCompanies?.length)" class="detail-panel production-panel detail-module reveal-section" :style="{ order: moduleOrder('production') }">
+        <section v-if="isModuleShown('production') && (movie.crew?.length || movie.productionCompanies?.length)" class="detail-panel production-panel detail-module reveal-section" :style="{ order: moduleOrder('production') }">
           <div class="section-heading"><h2>幕后制作</h2><small>CREW</small></div>
           <div v-if="visibleCrew.length" class="crew-list">
             <button v-for="person in visibleCrew" :key="`${person.id}-${person.role}`" @click="openPerson(person)"><span>{{ person.role }}</span><strong>{{ person.name }}</strong></button>
@@ -558,7 +560,7 @@ onBeforeUnmount(() => {
           </button>
         </section>
 
-        <section v-if="isModuleVisible('releases') && movie.releases?.length" class="detail-panel releases-panel detail-module reveal-section" :style="{ order: moduleOrder('releases') }">
+        <section v-if="isModuleShown('releases') && movie.releases?.length" class="detail-panel releases-panel detail-module reveal-section" :style="{ order: moduleOrder('releases') }">
           <div class="section-heading"><h2>地区上映</h2><small>{{ movie.releases.length }} 个地区</small></div>
           <div class="release-list"><article v-for="release in visibleReleases" :key="`${release.country}-${release.date}`"><strong>{{ release.country }}</strong><div><span>{{ release.date || '日期待定' }}</span><small>{{ releaseTypeLabel(release.type) }}<template v-if="release.certification"> · {{ release.certification }}</template></small></div></article></div>
           <button v-if="movie.releases.length > 2" class="text-action panel-expand" @click="releasesExpanded = !releasesExpanded">
@@ -566,7 +568,7 @@ onBeforeUnmount(() => {
           </button>
         </section>
 
-        <section v-if="isModuleVisible('videos') && movie.videos?.length" class="detail-panel videos-panel detail-module reveal-section" :style="{ order: moduleOrder('videos') }">
+        <section v-if="isModuleShown('videos') && movie.videos?.length" class="detail-panel videos-panel detail-module reveal-section" :style="{ order: moduleOrder('videos') }">
           <div class="section-heading"><h2>影片视频</h2><small>链接播放</small></div>
           <div class="video-list"><button v-for="video in visibleVideos" :key="video.id" @click="openExternal(video.url)"><i><Play :size="15" fill="currentColor" /></i><span><strong>{{ video.name }}</strong><small>{{ video.type }}<template v-if="video.official"> · 官方</template></small></span></button></div>
           <button v-if="movie.videos.length > 2" class="text-action panel-expand" @click="videosExpanded = !videosExpanded">
@@ -574,18 +576,18 @@ onBeforeUnmount(() => {
           </button>
         </section>
 
-        <section v-if="isModuleVisible('posters') && movie.posters?.length" class="detail-panel posters-panel detail-module reveal-section" :style="{ order: moduleOrder('posters') }">
+        <section v-if="isModuleShown('posters') && movie.posters?.length" class="detail-panel posters-panel detail-module reveal-section" :style="{ order: moduleOrder('posters') }">
           <div class="section-heading"><h2>海报画廊</h2><small>点击放大</small></div>
           <div class="poster-rail"><button v-for="(poster, index) in movie.posters" :key="poster.file_path" :aria-label="`放大查看第 ${Number(index) + 1} 张电影海报`" @click="openImage(imageUrl(poster.file_path), `${movie.title} · 海报 ${String(Number(index) + 1).padStart(2, '0')}`, 'contain', posterViewerImages, posterViewerIndex(poster.file_path))"><img :src="imageUrl(poster.file_path, 'w342')" :alt="`${movie.title}海报${Number(index) + 1}`" /><span>{{ poster.language?.toUpperCase() || 'ART' }}</span></button></div>
         </section>
 
-        <section v-if="isModuleVisible('collection') && movie.collection?.parts?.length" class="detail-panel collection-panel detail-module reveal-section" :style="{ order: moduleOrder('collection') }">
+        <section v-if="isModuleShown('collection') && movie.collection?.parts?.length" class="detail-panel collection-panel detail-module reveal-section" :style="{ order: moduleOrder('collection') }">
           <div class="collection-heading" :style="movie.collection.backdrop_path ? { backgroundImage: `url(${imageUrl(movie.collection.backdrop_path, 'w780')})` } : {}"><div><small>COLLECTION</small><h2>{{ movie.collection.name }}</h2></div></div>
           <p v-if="movie.collection.overview">{{ movie.collection.overview }}</p>
           <div class="collection-parts"><button v-for="part in movie.collection.parts" :key="part.id" type="button" :aria-label="`预览${part.title}`" @click="previewMovie(part)"><img v-if="part.poster_path" :src="imageUrl(part.poster_path, 'w185')" :alt="part.title" /><div v-else></div><strong>{{ part.title }}</strong><span>{{ part.year }}</span></button></div>
         </section>
 
-        <section v-if="isModuleVisible('stills') && movieStills.length" class="detail-panel stills-panel detail-module reveal-section" :style="{ order: moduleOrder('stills') }">
+        <section v-if="isModuleShown('stills') && movieStills.length" class="detail-panel stills-panel detail-module reveal-section" :style="{ order: moduleOrder('stills') }">
           <div class="section-heading"><h2>电影剧照</h2><small>左右滑动 · 点击放大</small></div>
           <div class="stills-rail" aria-label="电影剧照画廊">
             <button v-for="(still, index) in movieStills" :key="still" :aria-label="`放大查看第 ${index + 1} 张电影剧照`" @click="openImage(imageUrl(still), `${movie.title} · 剧照 ${String(index + 1).padStart(2, '0')}`, 'contain', stillViewerImages, index)">
@@ -595,7 +597,7 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
-        <div class="detail-end" style="order: 99">影片资料由 TMDB 提供</div>
+        <div class="detail-end" style="order: 99">{{ previewMode ? '轻量预览 · 保存后查看完整资料' : '影片资料由 TMDB 提供' }}</div>
       </div>
     </div>
 
@@ -661,7 +663,9 @@ onBeforeUnmount(() => {
 .movie-detail.motion-high { animation:detail-gravity-home .58s cubic-bezier(.16,1,.3,1) both; }
 .movie-detail.motion-high.entry-list { transform-origin:14% 72%; animation-name:detail-gravity-list; }
 .movie-detail.motion-high.entry-library { transform-origin:100% 50%; animation:detail-library-cover-high .58s cubic-bezier(.16,1,.3,1) both; }
+.movie-detail.motion-high.entry-preview { animation:detail-side-in .34s cubic-bezier(.16,1,.3,1) both; }
 .movie-detail.motion-medium { animation:detail-side-in .46s cubic-bezier(.16,1,.3,1) both; }
+.movie-detail.motion-medium.entry-preview { animation-duration:.3s; }
 .movie-detail.motion-medium.entry-list { animation-name:detail-side-in-list; }
 .movie-detail.motion-medium.entry-library { animation:detail-library-cover-medium .44s cubic-bezier(.2,.8,.2,1) both; }
 .movie-detail.motion-low { animation:detail-low-in .22s ease-out both; }
@@ -690,7 +694,7 @@ onBeforeUnmount(() => {
 .movie-detail.motion-low .detail-backdrop{transition:transform .16s ease-out}
 .movie-detail--pop{--accent:#efaa74}.movie-detail--crayon{--accent:#ffd06c}.movie-detail--coco{--accent:#df9e72}
 .detail-backdrop{position:absolute;inset:0 auto auto 0;width:100%;height:100%;clip-path:inset(0 0 var(--backdrop-clip) 0);contain:paint;background-size:cover;background-position:center 20%;opacity:1;transform:scale(calc(1.035 + var(--scroll) * .018)) translateY(calc(var(--scroll) * -5px));transform-origin:50% 0;transition:transform .2s ease-out;will-change:clip-path,transform;animation:backdrop-open .72s cubic-bezier(.18,.88,.2,1) both}.detail-backdrop::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 0 40%,rgba(7,16,15,.2) 61%,rgba(7,16,15,.84) 84%,var(--screen) 100%)}
-.detail-topbar{position:absolute;z-index:5;top:24px;right:18px;left:18px;display:flex;align-items:center;justify-content:space-between}.detail-topbar button{display:grid;place-items:center;width:42px;height:42px;padding:0;color:#fff7ef;border:1px solid rgba(255,255,255,.35);border-radius:50%;background:rgba(12,18,18,.28);box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 8px 20px rgba(0,0,0,.18);backdrop-filter:blur(18px) saturate(1.35)}.detail-topbar button.active{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 55%,transparent)}
+.detail-topbar{position:absolute;z-index:5;top:max(36px,calc(env(safe-area-inset-top) + 12px));right:18px;left:18px;display:flex;align-items:center;justify-content:space-between}.detail-topbar button{display:grid;place-items:center;width:42px;height:42px;padding:0;color:#fff7ef;border:1px solid rgba(255,255,255,.35);border-radius:50%;background:rgba(12,18,18,.28);box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 8px 20px rgba(0,0,0,.18);backdrop-filter:blur(18px) saturate(1.35)}.detail-topbar button.active{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 55%,transparent)}
 .detail-swipe-hint{padding:6px 10px;color:rgba(255,247,239,.58);border:1px solid rgba(255,255,255,.13);border-radius:999px;background:rgba(13,16,18,.18);backdrop-filter:blur(14px);font-size:8px;font-weight:700;letter-spacing:.03em;pointer-events:none}
 .detail-scroll{position:absolute;inset:0;padding:0 18px 112px;overflow-y:auto;scrollbar-width:none;overscroll-behavior:contain}.detail-scroll::-webkit-scrollbar{display:none}.detail-hero-copy{display:flex;min-height:520px;flex-direction:column;justify-content:end;padding:100px 3px 28px;animation:detail-copy-in .72s cubic-bezier(.16,1,.3,1) .2s both}.detail-cover-card{width:106px;aspect-ratio:2/3;margin:0 0 14px;overflow:hidden;border:1px solid rgba(255,255,255,.3);border-radius:17px;background:rgba(4,10,10,.38);box-shadow:0 15px 34px rgba(0,0,0,.34),inset 0 1px rgba(255,255,255,.15);animation:title-rise .62s cubic-bezier(.16,1,.3,1) .04s both}.detail-cover-card img{display:block;width:100%;height:100%;object-fit:contain}.detail-original{margin:0 0 7px;color:rgba(255,247,239,.68);font:11px Georgia,serif;letter-spacing:.04em}.detail-hero-copy h1{max-width:350px;margin:0;font:500 29px/1.18 Georgia,'Songti SC',serif;letter-spacing:-.045em;text-shadow:0 3px 18px rgba(0,0,0,.42)}.detail-meta{display:flex;align-items:center;gap:9px;margin-top:15px;color:rgba(255,247,239,.68);font-size:9px}.detail-meta i{width:3px;height:3px;border-radius:50%;background:rgba(255,255,255,.45)}
 .detail-content{display:grid;gap:18px;padding-bottom:28px}.detail-tagline{margin:0 4px 2px;color:var(--accent);font:13px/1.6 Georgia,'Songti SC',serif}.detail-load-state{display:flex;align-items:center;gap:7px;padding:10px 12px;color:rgba(247,241,232,.66);border:1px solid rgba(255,255,255,.08);border-radius:13px;background:rgba(255,255,255,.025);font-size:9px}.detail-load-state svg{color:var(--accent);animation:loading-spin .9s linear infinite}.detail-load-state.is-error{color:#e7a69a;border-color:rgba(231,166,154,.16)}.reveal-section{--reveal-delay:0ms;opacity:0;filter:blur(7px);transform:translateY(42px) scale(.975);transition:opacity .64s ease var(--reveal-delay),filter .62s ease var(--reveal-delay),transform .82s cubic-bezier(.16,1,.3,1) var(--reveal-delay);will-change:opacity,filter,transform}.reveal-section.is-visible{opacity:1;filter:blur(0);transform:translateY(0) scale(1)}.score-actions{--reveal-delay:20ms}.quick-facts{--reveal-delay:55ms}.synopsis-panel{--reveal-delay:90ms}.people-panel{--reveal-delay:105ms}.record-panel{--reveal-delay:120ms}

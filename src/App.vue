@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } 
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
 import type { HttpResponse } from '@capacitor/core'
-import { ArrowDownUp, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, FileText, FolderTree, GripVertical, HardDrive, House, LayoutPanelTop, MoonStar, Pencil, Play, Search, SlidersHorizontal, Star, Trash2, Upload, X } from 'lucide-vue-next'
+import { ArrowDownUp, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, FileText, FolderTree, GripVertical, HardDrive, House, LayoutPanelTop, MoonStar, Pencil, Play, RotateCcw, Search, SlidersHorizontal, Star, Trash2, Upload, X } from 'lucide-vue-next'
 import MovieCarousel from './components/MovieCarousel.vue'
 import MovieList from './components/MovieList.vue'
 import MovieDetail from './components/MovieDetail.vue'
@@ -142,7 +142,9 @@ hydrateMovieRecords()
 const activeTab = ref('home')
 const addOpen = ref(false)
 const username = ref(localStorage.getItem('movie-username') || '通通')
-const activeWatchStat = ref('watched')
+const savedHomeWatchPriority = localStorage.getItem('movie-home-watch-priority')
+const homeWatchPriority = ref<'watched' | 'unwatched'>(savedHomeWatchPriority === 'unwatched' ? 'unwatched' : 'watched')
+const activeWatchStat = ref(homeWatchPriority.value)
 const storedHomeViewMode = localStorage.getItem(HOME_VIEW_MODE_KEY)
 const viewMode = ref<'cards' | 'list'>(storedHomeViewMode === 'list' ? 'list' : 'cards')
 const homeSwapTransition = ref('card-swap')
@@ -551,12 +553,11 @@ const activeCategoryLabel = computed(() => {
 const libraryStatusTitle = computed(() => ({ all: '全部', watched: '已观看', unwatched: '未观看', favourite: '收藏' })[libraryWatchFilter.value])
 const libraryStatusFrames = computed(() => [libraryStatusTitle.value])
 const libraryMediaFrames = computed(() => [libraryMediaType.value])
-const libraryWatchStates = computed(() => [
-  { value: 'all', label: '全部', count: movieRecords.value.length },
+const libraryWatchStates = computed<Array<{ value: 'watched' | 'unwatched'; label: string; count: number }>>(() => [
   { value: 'watched', label: '已看', count: watchedCount.value },
   { value: 'unwatched', label: '未看', count: unwatchedCount.value },
 ])
-const activeLibraryWatchState = computed(() => libraryWatchStates.value.find((state) => state.value === libraryWatchFilter.value) || libraryWatchStates.value[0])
+const libraryWatchResetVisible = computed(() => libraryWatchFilter.value !== 'all')
 const selectedLibraryDate = computed(() => statPeriod.value === 'year' ? String(libraryYearValue.value) : statPeriod.value === 'month' ? `${libraryYearValue.value}-${String(libraryMonthValue.value).padStart(2, '0')}` : `${libraryYearValue.value}-${String(libraryMonthValue.value).padStart(2, '0')}-${String(selectedLibraryDay.value).padStart(2, '0')}`)
 const libraryMovies = computed(() => {
   const keyword = libraryQuery.value.trim().toLocaleLowerCase('zh-CN')
@@ -583,6 +584,7 @@ watch(username, (value) => localStorage.setItem('movie-username', value || '用�
 watch(statPeriod, (value) => localStorage.setItem('movie-stat-period', value))
 watch(homeDisplayLimit, (value) => localStorage.setItem('movie-home-limit', String(value)))
 watch(viewMode, (value) => localStorage.setItem(HOME_VIEW_MODE_KEY, value))
+watch(homeWatchPriority, (value) => localStorage.setItem('movie-home-watch-priority', value))
 watch(avatarUrl, (value) => localStorage.setItem('movie-avatar-url', value.trim()))
 watch(profileBackgroundColor, (value) => localStorage.setItem('movie-profile-background', value))
 watch(avatarRingColor, (value) => localStorage.setItem('movie-avatar-ring', value))
@@ -641,6 +643,11 @@ function setWatchStat(value) {
   statusSwitchTimer = window.setTimeout(() => {
     statusSwitching.value = false
   }, switchDuration)
+}
+
+function setHomeWatchPriority(value: 'watched' | 'unwatched') {
+  homeWatchPriority.value = value
+  setWatchStat(value)
 }
 
 function toggleViewMode() {
@@ -777,9 +784,14 @@ function openDetail(movie) {
   ensureTmdbDetails(movie)
 }
 
-function cycleLibraryWatchFilter() {
-  const index = libraryWatchStates.value.findIndex((state) => state.value === libraryWatchFilter.value)
-  libraryWatchFilter.value = libraryWatchStates.value[(index + 1) % libraryWatchStates.value.length].value
+function setLibraryWatchFilter(value: 'watched' | 'unwatched' | 'favourite') {
+  libraryWatchFilter.value = value
+  expandedLibraryId.value = null
+}
+
+function resetLibraryWatchFilter() {
+  libraryWatchFilter.value = 'all'
+  expandedLibraryId.value = null
 }
 
 function resetLibraryDate() {
@@ -1687,12 +1699,13 @@ function openTmdbPreview(source) {
     vote_count: source.vote_count ?? source.tmdbVoteCount ?? 0,
     genre_ids: source.genre_ids || [],
     original_language: source.original_language || '',
+    previewOnly: true,
     detailState: 'idle',
   }
   selectedMovie.value = preview
   detailEntry.value = 'preview'
   currentPage.value = 'detail'
-  ensureTmdbDetails(preview)
+  ensureTmdbDetails(preview, { compact: true })
 }
 
 function openPreviewSaveDialog() {
@@ -1770,9 +1783,11 @@ function addTmdbMovie(result) {
   return movie
 }
 
-async function ensureTmdbDetails(movie) {
+async function ensureTmdbDetails(movie, options: { compact?: boolean } = {}) {
+  const compact = options.compact ?? movie?.previewOnly === true
+  const expectedDetailVersion = compact ? 1 : 2
   const rawId = movie?.tmdbId ?? (String(movie?.id || '').startsWith('tmdb-') ? String(movie.id).slice(5) : null)
-  if (!rawId || movie.detailState === 'loading' || (movie.detailState === 'success' && movie.detailVersion >= 2)) return
+  if (!rawId || movie.detailState === 'loading' || (movie.detailState === 'success' && movie.detailVersion >= expectedDetailVersion)) return
   if (!tmdbToken.value.trim()) {
     movie.detailState = 'error'
     movie.detailError = '请先在设置中配置 TMDB API 密钥。'
@@ -1783,7 +1798,10 @@ async function ensureTmdbDetails(movie) {
   movie.detailError = ''
   try {
     const base = tmdbApiBase.value.trim().replace(/\/$/, '')
-    const request = tmdbRequest(`${base}/movie/${rawId}`, {
+    const request = tmdbRequest(`${base}/movie/${rawId}`, compact ? {
+      language: 'zh-CN',
+      append_to_response: 'credits',
+    } : {
       language: 'zh-CN',
       append_to_response: 'credits,videos,release_dates,images,keywords',
       include_video_language: 'zh,en,null',
@@ -1793,7 +1811,7 @@ async function ensureTmdbDetails(movie) {
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const detail = await response.json()
     let collectionDetail = null
-    if (detail.belongs_to_collection?.id) {
+    if (!compact && detail.belongs_to_collection?.id) {
       const collectionRequest = tmdbRequest(`${base}/collection/${detail.belongs_to_collection.id}`, { language: 'zh-CN' })
       const collectionResponse = await executeTmdbRequest(collectionRequest)
       if (collectionResponse.ok) collectionDetail = await collectionResponse.json()
@@ -1827,15 +1845,15 @@ async function ensureTmdbDetails(movie) {
       original_language: detail.original_language || movie.original_language || '',
       popularity: detail.popularity || movie.popularity || 0,
       certification,
-      detailVersion: 2,
-      filmInfo: {
+      detailVersion: expectedDetailVersion,
+      filmInfo: compact ? null : {
         countries: (detail.production_countries || []).map((item) => item.name).filter(Boolean),
         languages: (detail.spoken_languages || []).map((item) => item.name || item.english_name).filter(Boolean),
         originalLanguage: detail.original_language || '',
         status: detail.status || '',
       },
-      productionCompanies: (detail.production_companies || []).slice(0, 6).map((company) => ({ id: company.id, name: company.name, logo_path: company.logo_path, country: company.origin_country })),
-      crew: (detail.credits?.crew || []).filter((person) => ['Director', 'Screenplay', 'Writer', 'Producer', 'Director of Photography', 'Original Music Composer', 'Editor'].includes(person.job)).filter((person, index, list) => list.findIndex((item) => item.id === person.id && item.job === person.job) === index).slice(0, 10).map((person) => ({ id: person.id, name: person.name, role: person.job, profile_path: person.profile_path })),
+      productionCompanies: compact ? [] : (detail.production_companies || []).slice(0, 6).map((company) => ({ id: company.id, name: company.name, logo_path: company.logo_path, country: company.origin_country })),
+      crew: compact ? [] : (detail.credits?.crew || []).filter((person) => ['Director', 'Screenplay', 'Writer', 'Producer', 'Director of Photography', 'Original Music Composer', 'Editor'].includes(person.job)).filter((person, index, list) => list.findIndex((item) => item.id === person.id && item.job === person.job) === index).slice(0, 10).map((person) => ({ id: person.id, name: person.name, role: person.job, profile_path: person.profile_path })),
       keywords: (detail.keywords?.keywords || detail.keywords?.results || []).slice(0, 14).map((keyword) => keyword.name),
       releases: (detail.release_dates?.results || []).filter((region) => region.release_dates?.length).slice(0, 8).map((region) => {
         const release = region.release_dates[0]
@@ -1852,7 +1870,7 @@ async function ensureTmdbDetails(movie) {
         parts: (collectionDetail.parts || []).sort((a, b) => String(a.release_date || '').localeCompare(String(b.release_date || ''))).map((part) => ({ id: part.id, title: part.title, original_title: part.original_title, year: part.release_date?.slice(0, 4) || '', release_date: part.release_date || '', poster_path: part.poster_path, backdrop_path: part.backdrop_path, overview: part.overview || '', vote_average: part.vote_average || 0, vote_count: part.vote_count || 0, genre_ids: part.genre_ids || [], original_language: part.original_language || '' })),
       } : null,
       director: director ? { id: director.id, name: director.name, role: '导演', profile_path: director.profile_path } : null,
-      cast: (detail.credits?.cast || []).slice(0, 8).map((person) => ({
+      cast: (detail.credits?.cast || []).slice(0, compact ? 4 : 8).map((person) => ({
         id: person.id,
         name: person.name,
         role: person.character || '演员',
@@ -2046,7 +2064,7 @@ function navigateDetail(direction) {
                   split-level-class-name="rotating-title__clip"
                 />
                 <span class="library-title-separator">·</span>
-                <span class="library-title-status">
+                <span class="library-title-status" :class="`is-${libraryWatchFilter}`">
                   <RotatingText
                     :texts="libraryStatusFrames"
                     :auto="false"
@@ -2099,16 +2117,16 @@ function navigateDetail(direction) {
               <button type="button" class="date-dock__reset" aria-label="显示全部日期" @click.stop="resetLibraryDate">全部</button>
             </aside>
             <div class="library-status-stack" role="group" aria-label="观看状态筛选">
-              <button class="status-cycle-button" :class="libraryWatchFilter === 'favourite' ? 'is-inactive' : `is-${activeLibraryWatchState.value}`" :aria-label="`当前${activeLibraryWatchState.label}，点击切换观看状态`" @click="cycleLibraryWatchFilter">
-                <Transition name="status-cycle" mode="out-in">
-                  <span :key="activeLibraryWatchState.value" class="status-cycle-content"><small>{{ activeLibraryWatchState.label }}</small><strong>{{ activeLibraryWatchState.count }}</strong></span>
-                </Transition>
-                <ChevronDown :size="12" />
+              <button v-for="state in libraryWatchStates" :key="state.value" class="status-cycle-button status-filter-button" :class="[`is-${state.value}`, { selected: libraryWatchFilter === state.value }]" :aria-label="`只看${state.label}`" :aria-pressed="libraryWatchFilter === state.value" @click="setLibraryWatchFilter(state.value)">
+                <span class="status-cycle-content"><small>{{ state.label }}</small><strong>{{ state.count }}</strong></span>
               </button>
-              <button class="status-cycle-button library-favourite-button" :class="{ selected: libraryWatchFilter === 'favourite' }" aria-label="只看我的喜欢" @click="libraryWatchFilter = libraryWatchFilter === 'favourite' ? 'all' : 'favourite'">
+              <button class="status-cycle-button library-favourite-button" :class="{ selected: libraryWatchFilter === 'favourite' }" aria-label="只看我的喜欢" :aria-pressed="libraryWatchFilter === 'favourite'" @click="setLibraryWatchFilter('favourite')">
                 <span class="status-cycle-content"><small>喜欢</small><strong>{{ favouriteCount }}</strong></span>
                 <Star :size="12" :fill="libraryWatchFilter === 'favourite' ? 'currentColor' : 'none'" />
               </button>
+              <Transition name="status-cycle">
+                <button v-if="libraryWatchResetVisible" class="library-status-reset" aria-label="重置观看状态筛选" @click="resetLibraryWatchFilter"><RotateCcw :size="13" /><small>重置</small></button>
+              </Transition>
             </div>
             <div class="library-list" aria-live="polite">
             <article v-for="(movie, index) in libraryMovies" :key="movie.id" class="library-row" :class="{ expanded: expandedLibraryId === movie.id }" :style="{ '--row-order': index, '--row-tint': movieTone(movie) }">
@@ -2265,7 +2283,7 @@ function navigateDetail(direction) {
                 <button :aria-label="settingsSection === 'hub' ? '返回首页' : '返回设置'" @click="backFromSettings"><ChevronLeft :size="22" /></button>
                 <div>
                   <h1>{{ settingsSection === 'hub' ? '设置' : settingsSection === 'profile' ? '个人信息' : settingsSection === 'home' ? '首页编辑' : settingsSection === 'library' ? '列表设置' : settingsSection === 'categories' ? '分类设置' : settingsSection === 'detail-layout' ? '电影详情布局' : settingsSection === 'animation' ? '动画强度设置' : settingsSection === 'database' ? '数据库设置' : 'TMDB 设置' }}</h1>
-                  <p>{{ settingsSection === 'hub' ? '把常用设置收进清晰的分类里。' : settingsSection === 'profile' ? '头像和名称会显示在首页。' : settingsSection === 'home' ? '控制首页的统计与展示数量。' : settingsSection === 'library' ? '统一管理标签、排序与工具位置。' : settingsSection === 'categories' ? '管理两层分类、自定义内容与显示顺序。' : settingsSection === 'detail-layout' ? '调整详情模块的优先展示顺序。' : settingsSection === 'animation' ? '统一控制所有页面的动态幅度与启动动画。' : settingsSection === 'database' ? '查看当前设备的本地数据库状态。' : '配置 API 密钥与代理连接。' }}</p>
+                  <p>{{ settingsSection === 'hub' ? '把常用设置收进清晰的分类里。' : settingsSection === 'profile' ? '头像和名称会显示在首页。' : settingsSection === 'home' ? '控制首页优先状态、统计单位与展示数量。' : settingsSection === 'library' ? '统一管理标签、排序与工具位置。' : settingsSection === 'categories' ? '管理两层分类、自定义内容与显示顺序。' : settingsSection === 'detail-layout' ? '调整详情模块的优先展示顺序。' : settingsSection === 'animation' ? '统一控制所有页面的动态幅度与启动动画。' : settingsSection === 'database' ? '查看当前设备的本地数据库状态。' : '配置 API 密钥与代理连接。' }}</p>
                 </div>
               </header>
 
@@ -2285,7 +2303,7 @@ function navigateDetail(direction) {
                     <span><strong>模式选择</strong><small>背景与手机显示模式同步</small></span>
                     <Transition name="theme-label" mode="out-in"><b :key="themeMode">{{ themeModeLabel }}</b></Transition>
                   </button>
-                  <button @click="openSettingsSection('home')"><i class="settings-icon settings-icon--home"><House :size="18" /></i><span><strong>首页编辑</strong><small>统计单位、展示数量</small></span><ChevronRight :size="18" /></button>
+                  <button @click="openSettingsSection('home')"><i class="settings-icon settings-icon--home"><House :size="18" /></i><span><strong>首页编辑</strong><small>优先状态、统计单位与展示数量</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('library')"><i class="settings-icon settings-icon--library"><SlidersHorizontal :size="18" /></i><span><strong>列表设置</strong><small>标签、排序与工具位置</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('categories')"><i class="settings-icon settings-icon--categories"><FolderTree :size="18" /></i><span><strong>分类设置</strong><small>两层分类、自定义与拖动排序</small></span><ChevronRight :size="18" /></button>
                   <button @click="openSettingsSection('detail-layout')"><i class="settings-icon settings-icon--detail"><LayoutPanelTop :size="18" /></i><span><strong>电影详情布局</strong><small>{{ detailLayout.length }} 个显示 · {{ hiddenDetailLayout.length }} 个隐藏</small></span><ChevronRight :size="18" /></button>
@@ -2321,9 +2339,10 @@ function navigateDetail(direction) {
               </template>
 
               <template v-else-if="settingsSection === 'home'">
-                <div class="settings-group settings-piece" style="--settings-order: 1"><label>默认统计单位</label><div class="period-options" role="group" aria-label="时间单位"><button v-for="option in [{ value: 'year', label: '年' }, { value: 'month', label: '月' }, { value: 'day', label: '日' }]" :key="option.value" :class="{ selected: statPeriod === option.value }" @click="statPeriod = option.value">{{ option.label }}</button></div></div>
-                <div class="settings-group settings-piece" style="--settings-order: 2"><label>首页最多展示</label><div class="home-limit-control" :class="{ editing: homeCustomLimitOpen }"><div class="period-options home-limit-options" role="group" aria-label="首页电影展示数量"><button v-for="limit in [5, 10]" :key="limit" :class="{ selected: homeDisplayLimit === limit && !homeCustomLimitOpen }" @click="homeDisplayLimit = limit; homeCustomLimitOpen = false">{{ limit }} 部</button><button v-if="!homeCustomLimitOpen" :class="{ selected: ![5, 10].includes(homeDisplayLimit) }" @click="openHomeCustomLimit">自定义</button></div><Transition name="home-custom-limit"><div v-if="homeCustomLimitOpen" class="home-custom-limit-editor"><label><input v-model="homeCustomLimitInput" type="number" inputmode="numeric" min="1" max="99" aria-label="自定义首页展示数量" /><span>部</span></label><div><button type="button" @click="cancelHomeCustomLimit">取消</button><button type="button" @click="saveHomeCustomLimit"><Check :size="13" />保存</button></div></div></Transition></div><small>卡片和列表共同使用这个展示数量；默认 10 部，也可快速选择 5 部。</small></div>
-                <div class="settings-group settings-piece" style="--settings-order: 3"><label>默认首页视图</label><div class="period-options home-view-options" role="group" aria-label="默认首页视图"><button :class="{ selected: viewMode === 'cards' }" @click="viewMode = 'cards'"><img :src="pixelCards" alt="" />卡片</button><button :class="{ selected: viewMode === 'list' }" @click="viewMode = 'list'"><img :src="pixelRows" alt="" />列表</button></div><small>选择后立即应用，下次打开 App 也会保持。</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 1"><label>首页优先显示</label><div class="period-options home-watch-priority-options" role="group" aria-label="首页优先显示状态"><button :class="{ selected: homeWatchPriority === 'unwatched' }" @click="setHomeWatchPriority('unwatched')">未观看</button><button :class="{ selected: homeWatchPriority === 'watched' }" @click="setHomeWatchPriority('watched')">已观看</button></div><small>决定每次打开 App 时首页先显示哪个观看状态。</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 2"><label>默认统计单位</label><div class="period-options" role="group" aria-label="时间单位"><button v-for="option in [{ value: 'year', label: '年' }, { value: 'month', label: '月' }, { value: 'day', label: '日' }]" :key="option.value" :class="{ selected: statPeriod === option.value }" @click="statPeriod = option.value">{{ option.label }}</button></div></div>
+                <div class="settings-group settings-piece" style="--settings-order: 3"><label>首页最多展示</label><div class="home-limit-control" :class="{ editing: homeCustomLimitOpen }"><div class="period-options home-limit-options" role="group" aria-label="首页电影展示数量"><button v-for="limit in [5, 10]" :key="limit" :class="{ selected: homeDisplayLimit === limit && !homeCustomLimitOpen }" @click="homeDisplayLimit = limit; homeCustomLimitOpen = false">{{ limit }} 部</button><button v-if="!homeCustomLimitOpen" :class="{ selected: ![5, 10].includes(homeDisplayLimit) }" @click="openHomeCustomLimit">自定义</button></div><Transition name="home-custom-limit"><div v-if="homeCustomLimitOpen" class="home-custom-limit-editor"><label><input v-model="homeCustomLimitInput" type="number" inputmode="numeric" min="1" max="99" aria-label="自定义首页展示数量" /><span>部</span></label><div><button type="button" @click="cancelHomeCustomLimit">取消</button><button type="button" @click="saveHomeCustomLimit"><Check :size="13" />保存</button></div></div></Transition></div><small>卡片和列表共同使用这个展示数量；默认 10 部，也可快速选择 5 部。</small></div>
+                <div class="settings-group settings-piece" style="--settings-order: 4"><label>默认首页视图</label><div class="period-options home-view-options" role="group" aria-label="默认首页视图"><button :class="{ selected: viewMode === 'cards' }" @click="viewMode = 'cards'"><img :src="pixelCards" alt="" />卡片</button><button :class="{ selected: viewMode === 'list' }" @click="viewMode = 'list'"><img :src="pixelRows" alt="" />列表</button></div><small>选择后立即应用，下次打开 App 也会保持。</small></div>
               </template>
 
               <template v-else-if="settingsSection === 'library'">
