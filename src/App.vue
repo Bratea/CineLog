@@ -193,6 +193,7 @@ const tmdbTestState = ref('idle')
 const tmdbTestMessage = ref('')
 const expandedLibraryId = ref(null)
 const recordExpanded = ref(false)
+const recordContentReady = ref(false)
 const recordMode = ref<'search' | 'import'>('search')
 const importFileInput = ref<HTMLInputElement | null>(null)
 const importDraftWatched = ref([])
@@ -527,7 +528,7 @@ const periodLabel = computed(() => ({ year: `${selectedYear.value} 年`, month: 
 const watchedSubtitle = computed(() => `按${({ year: '年', month: '月', day: '日' })[statPeriod.value]}整理 · 共 ${filteredMovies.value.length} 部`)
 const displayedMovies = computed(() => filteredMovies.value.slice(0, homeDisplayLimit.value))
 const surfaceTransitionName = computed(() => transitionDirection.value === 'forward' ? 'surface-forward' : 'surface-back')
-const surfaceTransitionDuration = computed(() => ({ high: 720, medium: 480, low: 260 })[motionIntensity.value])
+const surfaceTransitionDuration = computed(() => ({ high: 680, medium: 340, low: 260 })[motionIntensity.value])
 const settingsTransitionName = computed(() => settingsDirection.value === 'forward' ? 'settings-forward' : 'settings-back')
 const surfacePage = computed(() => {
   if (currentPage.value === 'detail') return detailOrigin.value
@@ -1359,6 +1360,7 @@ function closeRecordSheet() {
   window.setTimeout(() => {
     addOpen.value = false
     recordExpanded.value = false
+    recordContentReady.value = false
     selectedTmdbResult.value = null
     recordNotices.value = []
     recordMode.value = 'search'
@@ -1374,11 +1376,25 @@ function openTmdbSettingsFromRecord() {
 function startRecord() {
   recordMode.value = 'search'
   recordExpanded.value = true
+  if (motionIntensity.value !== 'high') {
+    recordContentReady.value = true
+    return
+  }
+  window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+    if (recordExpanded.value && !recordClosing.value) recordContentReady.value = true
+  }))
 }
 
 function startImport() {
   recordMode.value = 'import'
   recordExpanded.value = true
+  if (motionIntensity.value !== 'high') {
+    recordContentReady.value = true
+    return
+  }
+  window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+    if (recordExpanded.value && !recordClosing.value) recordContentReady.value = true
+  }))
 }
 
 function normalizeImportTitle(rawTitle: string) {
@@ -2202,7 +2218,7 @@ function navigateDetail(direction) {
           <template v-if="!recordExpanded">
             <h2>记录一部电影</h2><p>输入电影名称，从 TMDB 获取封面和影片资料。</p><div class="record-entry-actions"><button @click="startRecord">开始记录</button><button class="record-import-entry" @click="startImport"><Upload :size="15" />导入片单</button></div>
           </template>
-          <template v-else-if="recordMode === 'search'">
+          <template v-else-if="recordContentReady && recordMode === 'search'">
             <header class="record-header" :class="{ 'has-results': tmdbSearchState === 'success' && tmdbResults.length }"><div><small>{{ tmdbSearchState === 'success' && tmdbResults.length ? `搜索结果 · ${tmdbTotalResults} 部` : '新建记录' }}</small><h2>{{ tmdbSearchState === 'success' && tmdbResults.length ? `“${tmdbSearchLastQuery}”` : '搜索一部电影' }}</h2></div><button aria-label="关闭添加电影" @click="closeRecordSheet"><X :size="19" /></button></header>
             <form class="tmdb-search" :class="{ 'is-complete': tmdbSearchState === 'success' && tmdbResults.length }" @submit.prevent="tmdbSearchState === 'success' && tmdbResults.length ? resetTmdbSearch() : searchTmdb()"><Search :size="18" /><input v-model="tmdbQuery" autofocus type="search" placeholder="输入电影名称，例如：流浪地球" aria-label="TMDB电影名称" /><button type="submit" :disabled="tmdbSearchState === 'loading'">{{ tmdbSearchState === 'loading' ? '搜索中' : tmdbSearchState === 'success' && tmdbResults.length ? '重新搜索' : '搜索' }}</button></form>
             <div v-if="!tmdbToken" class="record-api-note"><Database :size="18" /><div><strong>还没有配置 TMDB API 密钥</strong><span>先完成设置，之后输入名称即可获取电影。</span></div><button @click="openTmdbSettingsFromRecord">去设置</button></div>
@@ -2242,7 +2258,7 @@ function navigateDetail(direction) {
               </div>
             </Transition>
           </template>
-          <template v-else>
+          <template v-else-if="recordContentReady">
             <header class="record-header import-record-header"><div><small>中文片单</small><h2>检查后再导入</h2></div><button aria-label="关闭导入片单" @click="closeRecordSheet"><X :size="19" /></button></header>
             <div class="import-batch-tool"><input ref="importFileInput" class="import-file-input" type="file" accept=".txt,.csv,.xlsx,.xls,text/plain,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" @change="handleImportFile" /><button type="button" @click="importFileInput?.click()"><FileText :size="17" /><span><strong>选择 TXT 或 Excel 片单</strong><small>支持 .txt · .xlsx · .xls · .csv</small></span><Upload :size="15" /></button></div>
             <section class="import-review">
@@ -2294,7 +2310,7 @@ function navigateDetail(direction) {
 
       <Transition name="settings-shell">
         <section v-if="currentPage === 'settings'" class="personal-settings" @input.capture="handleSettingsAutoInput">
-          <Transition :name="settingsTransitionName" mode="out-in">
+          <Transition :name="settingsTransitionName" :mode="motionIntensity === 'medium' ? undefined : 'out-in'">
             <div :key="settingsSection" class="settings-page">
               <header class="settings-header settings-piece" style="--settings-order: 0">
                 <button :aria-label="settingsSection === 'hub' ? '返回首页' : '返回设置'" @click="backFromSettings"><ChevronLeft :size="22" /></button>
