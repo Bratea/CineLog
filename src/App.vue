@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } 
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
 import type { HttpResponse } from '@capacitor/core'
-import { ArrowDownUp, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, FileText, FolderTree, GripVertical, HardDrive, House, LayoutPanelTop, MoonStar, Pencil, Play, RotateCcw, Search, SlidersHorizontal, Star, Trash2, Upload, X } from 'lucide-vue-next'
+import { ArrowDownUp, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Database, FileText, FolderTree, GripVertical, HardDrive, House, LayoutPanelTop, MoonStar, Pencil, Play, RotateCcw, Search, Share2, SlidersHorizontal, Star, Trash2, Upload, X } from 'lucide-vue-next'
 import MovieCarousel from './components/MovieCarousel.vue'
 import MovieList from './components/MovieList.vue'
 import MovieDetail from './components/MovieDetail.vue'
@@ -12,6 +12,7 @@ import DatePickerDialog from './components/DatePickerDialog.vue'
 import CategorySettings from './components/CategorySettings.vue'
 import DetailLayoutSettings from './components/DetailLayoutSettings.vue'
 import DatabaseSettings from './components/DatabaseSettings.vue'
+import ShareDataSettings from './components/ShareDataSettings.vue'
 import RotatingText from './components/RotatingText.vue'
 import { getLocalValue, setLocalValue } from './services/localDatabase'
 import cinematicAnimeCollage from './assets/cinematic-anime-collage.png'
@@ -1095,6 +1096,14 @@ function showSettingsAutoSaved(message = '更改已写入当前设备') {
   pushNotice(settingsNotices, { title: '设置已自动保存', message, tone: 'success' }, NOTICE_DURATION)
 }
 
+function showShareExportNotice(message: string) {
+  pushNotice(settingsNotices, { title: '导出完成', message, tone: 'success' }, RECORD_NOTICE_DURATION)
+}
+
+function showShareExportError(message: string) {
+  pushNotice(settingsNotices, { title: '导出失败', message, tone: 'warning' }, RECORD_NOTICE_DURATION)
+}
+
 function handleSettingsAutoInput(event: Event) {
   const target = event.target as HTMLInputElement | null
   if (!target?.matches?.('[data-auto-save]')) return
@@ -2106,6 +2115,8 @@ function navigateDetail(direction) {
                   <RotatingText
                     :texts="libraryStatusFrames"
                     :auto="false"
+                    :layout-enabled="false"
+                    animate-presence-mode="popLayout"
                     stagger-from="last"
                     :stagger-duration="0.018"
                     :initial="{ y: '105%', opacity: 0, filter: 'blur(4px)' }"
@@ -2320,8 +2331,8 @@ function navigateDetail(direction) {
               <header class="settings-header settings-piece" style="--settings-order: 0">
                 <button :aria-label="settingsSection === 'hub' ? '返回首页' : '返回设置'" @click="backFromSettings"><ChevronLeft :size="22" /></button>
                 <div>
-                  <h1>{{ settingsSection === 'hub' ? '设置' : settingsSection === 'profile' ? '个人信息' : settingsSection === 'home' ? '首页编辑' : settingsSection === 'library' ? '列表设置' : settingsSection === 'categories' ? '分类设置' : settingsSection === 'detail-layout' ? '电影详情布局' : settingsSection === 'animation' ? '动画强度设置' : settingsSection === 'database' ? '数据库设置' : 'TMDB 设置' }}</h1>
-                  <p>{{ settingsSection === 'hub' ? '把常用设置收进清晰的分类里。' : settingsSection === 'profile' ? '头像和名称会显示在首页。' : settingsSection === 'home' ? '控制首页优先状态、统计单位与展示数量。' : settingsSection === 'library' ? '统一管理标签、排序与工具位置。' : settingsSection === 'categories' ? '管理两层分类、自定义内容与显示顺序。' : settingsSection === 'detail-layout' ? '调整详情模块的优先展示顺序。' : settingsSection === 'animation' ? '统一控制所有页面的动态幅度与启动动画。' : settingsSection === 'database' ? '查看当前设备的本地数据库状态。' : '配置 API 密钥与代理连接。' }}</p>
+                  <h1>{{ settingsSection === 'hub' ? '设置' : settingsSection === 'profile' ? '个人信息' : settingsSection === 'share' ? '分享数据' : settingsSection === 'home' ? '首页编辑' : settingsSection === 'library' ? '列表设置' : settingsSection === 'categories' ? '分类设置' : settingsSection === 'detail-layout' ? '电影详情布局' : settingsSection === 'animation' ? '动画强度设置' : settingsSection === 'database' ? '数据库设置' : 'TMDB 设置' }}</h1>
+                  <p>{{ settingsSection === 'hub' ? '把常用设置收进清晰的分类里。' : settingsSection === 'profile' ? '头像和名称会显示在首页。' : settingsSection === 'share' ? '导出片单，或备份完整本地数据库。' : settingsSection === 'home' ? '控制首页优先状态、统计单位与展示数量。' : settingsSection === 'library' ? '统一管理标签、排序与工具位置。' : settingsSection === 'categories' ? '管理两层分类、自定义内容与显示顺序。' : settingsSection === 'detail-layout' ? '调整详情模块的优先展示顺序。' : settingsSection === 'animation' ? '统一控制所有页面的动态幅度与启动动画。' : settingsSection === 'database' ? '查看当前设备的本地数据库状态。' : '配置 API 密钥与代理连接。' }}</p>
                 </div>
               </header>
 
@@ -2336,6 +2347,7 @@ function navigateDetail(direction) {
                 </button>
 
                 <div class="settings-category settings-piece" style="--settings-order: 2">
+                  <button @click="openSettingsSection('share')"><i class="settings-icon settings-icon--share"><Share2 :size="18" /></i><span><strong>分享数据</strong><small>导出 TXT、Excel 或完整数据库</small></span><ChevronRight :size="18" /></button>
                   <button type="button" class="theme-mode-row" :class="{ switching: themeSwitching }" :disabled="themeSwitching" :aria-label="`模式选择，当前${themeModeLabel}，点击切换`" @click="cycleThemeMode">
                     <i class="settings-icon settings-icon--theme"><MoonStar :size="18" /></i>
                     <span><strong>模式选择</strong><small>背景与手机显示模式同步</small></span>
@@ -2374,6 +2386,10 @@ function navigateDetail(direction) {
                 <div class="settings-group settings-piece" style="--settings-order: 2"><label for="username">名称</label><input id="username" v-model.trim="username" data-auto-save maxlength="10" placeholder="输入你的名字" /><small>首页将显示“{{ username || '用户' }}的观影记录”，更改会自动保存。</small></div>
                 <div class="settings-group settings-piece" style="--settings-order: 3"><label>本地头像</label><label class="avatar-upload"><i><Upload :size="18" /></i><span><strong>选择本地图片</strong><em>支持 JPG、PNG，自动居中裁剪</em></span><b>浏览</b><input type="file" accept="image/*" aria-label="选择本地头像图片" @change="handleAvatarUpload" /></label><small class="avatar-upload-status">{{ avatarUploadMessage || '图片会压缩为 256 × 256，并只保存在当前浏览器。' }}</small></div>
                 <div class="settings-group settings-piece" style="--settings-order: 4"><label for="avatar-url">或使用图片地址</label><input id="avatar-url" v-model.trim="avatarUrlInput" data-auto-save inputmode="url" :placeholder="avatarUrl.startsWith('data:') ? '正在使用本地头像，输入网址可替换' : 'https://example.com/avatar.jpg'" /><small>{{ avatarUrl.startsWith('data:') ? '当前使用本地头像，图片数据已隐藏。' : '留空时显示名称首字，更改会自动保存。' }}</small></div>
+              </template>
+
+              <template v-else-if="settingsSection === 'share'">
+                <ShareDataSettings :movies="movieRecords" @exported="showShareExportNotice" @error="showShareExportError" />
               </template>
 
               <template v-else-if="settingsSection === 'home'">

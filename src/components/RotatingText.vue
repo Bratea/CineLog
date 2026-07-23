@@ -15,6 +15,7 @@ const props = withDefaults(defineProps<{
   staggerFrom?: 'first' | 'last' | 'center' | 'random' | number
   loop?: boolean
   auto?: boolean
+  layoutEnabled?: boolean
   splitBy?: 'characters' | 'words' | 'lines'
   onNext?: (index: number) => void
   mainClassName?: string
@@ -33,6 +34,7 @@ const props = withDefaults(defineProps<{
   staggerFrom: 'first',
   loop: true,
   auto: true,
+  layoutEnabled: true,
   splitBy: 'characters',
   mainClassName: '',
   splitLevelClassName: '',
@@ -101,10 +103,10 @@ onUnmounted(cleanupInterval)
 </script>
 
 <template>
-  <Motion tag="span" :class="['rotating-text', mainClassName]" layout>
+  <Motion tag="span" :class="['rotating-text', mainClassName]" :layout="layoutEnabled">
     <span class="sr-only">{{ currentText }}</span>
     <AnimatePresence :mode="animatePresenceMode" :initial="animatePresenceInitial">
-      <Motion :key="renderKey" tag="span" class="rotating-text__line" aria-hidden="true" layout>
+      <Motion :key="renderKey" tag="span" class="rotating-text__line" aria-hidden="true" :layout="layoutEnabled">
         <span v-for="(word, wordIndex) in elements" :key="wordIndex" :class="['rotating-text__word', splitLevelClassName]">
           <Motion
             v-for="(character, characterIndex) in word.characters"

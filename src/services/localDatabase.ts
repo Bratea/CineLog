@@ -112,6 +112,43 @@ export async function setLocalValue<T>(key: string, value: T): Promise<void> {
   )
 }
 
+export async function getDatabaseSnapshot(): Promise<Record<string, unknown>> {
+  if (!isNativeDatabase()) {
+    const database = await openWebDatabase()
+    return new Promise((resolve, reject) => {
+      const transaction = database.transaction(STORE_NAME, 'readonly')
+      const store = transaction.objectStore(STORE_NAME)
+      const request = store.openCursor()
+      const entries: Record<string, unknown> = {}
+
+      request.onsuccess = () => {
+        const cursor = request.result
+        if (cursor) {
+          entries[String(cursor.key)] = cursor.value
+          cursor.continue()
+          return
+        }
+        resolve(entries)
+      }
+      request.onerror = () => reject(request.error)
+      transaction.onerror = () => reject(transaction.error)
+    })
+  }
+
+  const database = await openNativeDatabase()
+  const result = await database.query('SELECT key, value FROM app_state ORDER BY key')
+  const entries: Record<string, unknown> = {}
+  for (const row of result.values || []) {
+    if (typeof row?.key !== 'string') continue
+    try {
+      entries[row.key] = typeof row.value === 'string' ? JSON.parse(row.value) : row.value
+    } catch {
+      entries[row.key] = row.value
+    }
+  }
+  return entries
+}
+
 export async function getDatabaseInfo(): Promise<DatabaseInfo> {
   if (!isNativeDatabase()) {
     const database = await openWebDatabase()
